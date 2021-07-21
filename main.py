@@ -1,11 +1,11 @@
 import sys, os
-import time
+import time, shutil
 import signal
 import argparse
 from tensorboardX import SummaryWriter
 import numpy as np
 import torch
-#import visdom
+# import visdom
 import data
 from models import *
 from comm import CommNetMLP
@@ -13,7 +13,7 @@ from utils import *
 from action_utils import parse_action_args
 from trainer import Trainer
 from multi_processing import MultiProcessTrainer
-
+from collections import defaultdict
 
 # note for adding a new env: Add it in the data.py. Might involve righting a file in ic3net_envs.
 
@@ -67,11 +67,11 @@ parser.add_argument('--plot', action='store_true', default=False,
                     help='plot training progress')
 parser.add_argument('--plot_env', default='main', type=str,
                     help='plot env name')
-parser.add_argument('--save', default='', type=str,
+parser.add_argument('--save', default='trained_models', type=str,
                     help='save the model after training')
 parser.add_argument('--save_every', default=0, type=int,
                     help='save the model after every n_th epoch')
-parser.add_argument('--load', default='', type=str,
+parser.add_argument('--load', default='trained_models', type=str,
                     help='load the model')
 parser.add_argument('--display', action="store_true", default=False,
                     help='Display environment state')
@@ -112,6 +112,29 @@ parser.add_argument('--share_weights', default=False, action='store_true',
                     help='Share weights for hops')
 parser.add_argument('--log_dir', default='tb_logs', type=str,
                     help='directory to save tensorboard logs')
+parser.add_argument('--exp_name', default='default_exp', type=str,
+                    help='directory to save tensorboard logs')
+
+# TODO: Sanity check so as to make sure discrete and proto works for environments other than predator-prey.
+#  Currently the discrete and prototype based methods will only really take effect from inside the CommNet.
+parser.add_argument('--use_proto', default=False, action='store_true',
+                    help='Whether to use prototype nets in the communication layer.')
+
+parser.add_argument('--discrete_comm', default=False, action='store_true',
+                    help='Whether to use discrete_comm')
+parser.add_argument('--num_proto', type=int, default=6,
+                    help="Number of prototypes to use")
+
+parser.add_argument('--comm_dim', type=int, default=128,
+                    help="Dimension of the communication vector")
+
+
+# TODO: Formalise this gating head penalty factor
+parser.add_argument('--gating_head_cost_factor', type=float, default=0.0,
+                    help='discount factor')
+parser.add_argument('--restore', action='store_true', default=False,
+                    help='plot training progress')
+
 # first add environment specific args to the parser
 init_args_for_env(parser)
 
@@ -140,13 +163,10 @@ if hasattr(args, 'enemy_comm') and args.enemy_comm:
     else:
         raise RuntimeError("Env. needs to pass argument 'nenemy'.")
 
-# what's this doing? ->
 env = data.init(args.env_name, args, False)
-# print("env observation space is: ", env.observation_space)
 print("env action space is: ", env.action_space)
 
 num_inputs = env.observation_dim
-# print("num inputs ", num_inputs)
 # this basically is 4 for the case of basic predator-prey
 args.num_actions = env.num_actions
 
@@ -162,6 +182,7 @@ if args.hard_attn and args.commnet:
     # so communication has been made part of the action now
     args.num_actions = [*args.num_actions, 2]
     args.dim_actions = env.dim_actions + 1
+
 
 # Recurrence
 if args.commnet and (args.recurrent or args.rnn_type == 'LSTM'):
@@ -207,6 +228,7 @@ else:
 
 disp_trainer = Trainer(args, policy_net, data.init(args.env_name, args, False))
 disp_trainer.display = True
+
 def disp():
     x = disp_trainer.get_episode()
 
@@ -227,14 +249,41 @@ log['value_loss'] = LogField(list(), True, 'epoch', 'num_steps')
 log['action_loss'] = LogField(list(), True, 'epoch', 'num_steps')
 log['entropy'] = LogField(list(), True, 'epoch', 'num_steps')
 
-if args.plot:
+# define save dirctory
+# logs will also be saved under the same directory
+# TODO: For loading similar arrangements need to be made.
+if not args.restore:
+    save_path = os.path.join(args.save, args.env_name, args.exp_name, "seed" + str(args.seed), "models")
+    print(f"save directory is {save_path}")
+    log_path = os.path.join(args.save, args.env_name, args.exp_name, "seed" + str(args.seed), "logs")
+    print(f"log dir directory is {log_path}")
+    os.makedirs(save_path, exist_ok=True)
+
+    # if os.path.exists(log_path):
+    #     shutil.rmtree(log_path)
+    #     print("delete log done")
+    assert os.path.exists(log_path) == False, "The save directory already exists, use load instead if you want to continue" \
+                                              "training"
+    os.makedirs(log_path, exist_ok=True)
+    logger = SummaryWriter(log_path)
+
+# Removed this as we dont need to check if we want to plot or not. We plot all the time.
+# if args.plot:
     # vis = visdom.Visdom(env=args.plot_env)
-    logger = SummaryWriter(str(os.path.join(args.env_name, args.log_dir)))
+    # logger = SummaryWriter(str(os.path.join(args.env_name, args.log_dir)))
+
+
+# this is used for getting that multiple seed plot in the end.
+history = defaultdict(list)
+start_epoch  = 0
 
 def run(num_epochs):
-    for ep in range(num_epochs):
+    for ep in range(start_epoch, start_epoch + num_epochs):
         epoch_begin_time = time.time()
         stat = dict()
+
+        # added to store stats to numpy array
+
         for n in range(args.epoch_size):
             if n == args.epoch_size - 1 and args.display:
                 trainer.display = True
@@ -243,7 +292,8 @@ def run(num_epochs):
             trainer.display = False
 
         epoch_time = time.time() - epoch_begin_time
-        epoch = len(log['epoch'].data) + 1
+        # epoch = len(log['epoch'].data) + 1
+        epoch = ep
         for k, v in log.items():
             if k == 'epoch':
                 v.data.append(epoch)
@@ -255,10 +305,12 @@ def run(num_epochs):
         for k, v in stat.items():
             if k == "comm_action" or k == "reward":
                 for i, val in enumerate(v):
-                    # print(val)
                     logger.add_scalar(f"agent{i}/{k}" , val, epoch)
+                    history[f"agent{i}_{k}"].append(val)
+
             elif k != "epoch":
                 logger.add_scalar(k, v, epoch)
+                history[k].append(v)
 
         # print(stat)
         np.set_printoptions(precision=2)
@@ -291,10 +343,24 @@ def run(num_epochs):
         if args.save_every and ep and args.save != '' and ep % args.save_every == 0:
             # fname, ext = args.save.split('.')
             # save(fname + '_' + str(ep) + '.' + ext)
-            save(args.save + '_' + str(ep))
+            # TODO: Add seed to this path as well.
+            # save(args.save + '_' + str(ep))
+            save(save_path + '/' + str(ep) +'.pt')
+
+            # also save history periodically.
+            for k, v in history.items():
+                value = np.array(v)
+                np.save(f"{log_path}/{k}.npy", value)
 
         if args.save != '':
-            save(args.save)
+            # save(args.save)
+            save(save_path + '/model.pt')
+
+
+        # save history to the relevant path
+        for k, v in history.items():
+            value = np.array(v)
+            np.save(f"{log_path}/{k}.npy", value)
 
 def save(path):
     d = dict()
@@ -307,7 +373,16 @@ def load(path):
     d = torch.load(path)
     # log.clear()
     policy_net.load_state_dict(d['policy_net'])
-    log.update(d['log'])
+
+    # TODO: this need to be loading the tensorboard logs instead.
+    # log.update(d['log'])   # this was for the visdom logs.
+
+    # load history as well to continue training.
+    # for f in os.listdir(log_path):
+    #     if f.endswith(".npy"):
+    #         k = f.split('.npy')[0]
+    #         history[k] = list(np.load(f"{log_path}/{k}.npy"))
+
     trainer.load_state_dict(d['trainer'])
 
 def signal_handler(signal, frame):
@@ -318,15 +393,47 @@ def signal_handler(signal, frame):
 
 signal.signal(signal.SIGINT, signal_handler)
 
-if args.load != '':
-    load(args.load)
+# TODO: load needs to be changed similar to save
+# if args.load != '':
+#     load(args.load)
+
+if args.restore:
+    load_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), "models")
+    print(f"load directory is {load_path}")
+    log_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), "logs")
+    print(f"log dir directory is {log_path}")
+    logger = SummaryWriter(log_path)
+
+    save_path = load_path
+
+    if 'model.pt' in os.listdir(load_path):
+        model_path = os.path.join(load_path, "model.pt")
+
+    else:
+        all_models = sort([int(f.split('.pt')[0]) for f in os.listdir(load_path)])
+        model_path = os.path.join(load_path, f"{all_models[-1]}.pt")
+
+    d = torch.load(model_path)
+    policy_net.load_state_dict(d['policy_net'])
+
+    # load history as well to continue training.
+    for f in os.listdir(log_path):
+        if f.endswith(".npy"):
+            k = f.split('.npy')[0]
+            history[k] = list(np.load(f"{log_path}/{k}.npy"))
+            start_epoch = len(history[k])
+
+    trainer.load_state_dict(d['trainer'])
+
 
 run(args.num_epochs)
+
 if args.display:
     env.end_display()
 
 if args.save != '':
-    save(args.save)
+    # save(args.save)
+    save(save_path + '/model.pt')
 
 if sys.flags.interactive == 0 and args.nprocesses > 1:
     trainer.quit()
