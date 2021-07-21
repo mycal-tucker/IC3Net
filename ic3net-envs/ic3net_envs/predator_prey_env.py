@@ -104,8 +104,13 @@ class PredatorPreyEnv(gym.Env):
         #          predator + prey + grid + outside
 
         # Observation for each agent will be vision * vision ndarray
-        self.observation_space = spaces.Box(low=0, high=1, shape=(self.vocab_size, (2 * self.vision) + 1, (2 * self.vision) + 1), dtype=int)
+        self.observation_space = spaces.Box(low=0, high=1, shape=(self.vocab_size, (2 * self.vision) + 1,
+                                                                  (2 * self.vision) + 1), dtype=int)
         # Actual observation will be of the shape 1 * npredator * (2v+1) * (2v+1) * vocab_size
+
+        # set seed too
+        if args.seed != -1:
+            np.random.seed(args.seed)
 
         return
 
@@ -126,6 +131,9 @@ class PredatorPreyEnv(gym.Env):
             episode_over (bool) : Will be true as episode length is 1
             info (dict) : diagnostic information useful for debugging.
         """
+
+
+
         if self.episode_over:
             raise RuntimeError("Episode is done")
         action = np.array(action).squeeze()
@@ -139,7 +147,7 @@ class PredatorPreyEnv(gym.Env):
 
         self.episode_over = False
         self.obs = self._get_obs()
-
+        # print(self.obs)
         debug = {'predator_locs':self.predator_loc,'prey_locs':self.prey_loc}
         return self.obs, self._get_reward(), self.episode_over, debug
 
