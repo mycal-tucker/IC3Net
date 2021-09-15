@@ -5,9 +5,9 @@ from gym import spaces
 from inspect import getargspec
 
 class GymWrapper(object):
-    '''
+    """
     for multi-agent
-    '''
+    """
     def __init__(self, env):
         self.env = env
 
@@ -73,10 +73,14 @@ class GymWrapper(object):
     def step(self, action):
         # TODO: Modify all environments to take list of action
         # instead of doing this
+
         if self.dim_actions == 1:
+            # this basically makes sure you are ignoring the gating action.
             action = action[0]
+
         obs, r, done, info = self.env.step(action)
         obs = self._flatten_obs(obs)
+
         return (obs, r, done, info)
 
     def reward_terminal(self):

@@ -9,6 +9,7 @@ def parse_action_args(args):
         # assert args.dim_actions == 1
         # support multi action
         args.naction_heads = [int(args.num_actions[i]) for i in range(args.dim_actions)]
+
     else:
         # environment takes continuous action
         actions_heads = args.nactions.split(':')
@@ -25,6 +26,7 @@ def parse_action_args(args):
 
 
 def select_action(args, action_out):
+    # print(f"select action called")
     if args.continuous:
         action_mean, _, action_std = action_out
         action = torch.normal(action_mean, action_std)
@@ -32,6 +34,14 @@ def select_action(args, action_out):
     else:
         log_p_a = action_out
         p_a = [[z.exp() for z in x] for x in log_p_a]
+
+        # p_a is [[tensor([[0.1887, 0.2079, 0.1943, 0.2028, 0.2064],
+        #                  [0.1918, 0.2052, 0.1866, 0.2061, 0.2104],
+        #                  [0.1948, 0.2061, 0.1900, 0.2076, 0.2015]], grad_fn= < ExpBackward >)], [
+        #     tensor([[0.5344, 0.4656],
+        #             [0.5307, 0.4693],
+        #             [0.5179, 0.4821]], grad_fn= < ExpBackward >)]]
+
         ret = torch.stack([torch.stack([torch.multinomial(x, 1).detach() for x in p]) for p in p_a])
         return ret
 

@@ -6,8 +6,10 @@ from torch import optim
 import torch.nn as nn
 from utils import *
 from action_utils import *
+import time
 
-Transition = namedtuple('Transition', ('state', 'action', 'action_out', 'value', 'episode_mask', 'episode_mini_mask', 'next_state',
+Transition = namedtuple('Transition', ('state', 'action', 'action_out', 'value', 'episode_mask',
+                                       'episode_mini_mask', 'next_state',
                                        'reward', 'misc'))
 
 
@@ -38,6 +40,7 @@ class Trainer(object):
         info = dict()
         switch_t = -1
 
+        # one is used because of the batch size.
         prev_hid = torch.zeros(1, self.args.nagents, self.args.hid_size)
 
         for t in range(self.args.max_steps):
@@ -53,6 +56,7 @@ class Trainer(object):
                 x = [state, prev_hid]
                 action_out, value, prev_hid = self.policy_net(x, info)
 
+                # this seems to be limiting how much BPTT happens.
                 if (t + 1) % self.args.detach_gap == 0:
                     if self.args.rnn_type == 'LSTM':
                         prev_hid = (prev_hid[0].detach(), prev_hid[1].detach())
@@ -62,9 +66,30 @@ class Trainer(object):
                 x = state
                 action_out, value = self.policy_net(x, info)
 
+
+            # this is actually giving you actions from logits
             action = select_action(self.args, action_out)
+
+            # this is for the gating head penalty
+            if not self.args.continuous and self.args.gating_head_cost_factor != 0:
+                log_p_a = action_out
+                p_a = [[z.exp() for z in x] for x in log_p_a]
+                gating_probs = p_a[1][0].detach().numpy()
+
+                # since we treat this as reward so probability of 0 being high is rewarded
+                gating_head_rew = np.array([p[0] for p in gating_probs]) * self.args.gating_head_cost_factor
+
+            # this converts stuff to numpy
             action, actual = translate_action(self.args, self.env, action)
+
             next_state, reward, done, info = self.env.step(actual)
+            # print(f"general reward is {reward}")
+            # print(f"type of gating reward {type(gating_head_rew)}, type of reward {type(reward)}")
+            # import time
+            # time.sleep(10)
+            if not self.args.continuous and self.args.gating_head_cost_factor != 0:
+                # print(f"gating head reward is {gating_head_rew}, general reward {reward}")
+                reward += gating_head_rew
 
             # store comm_action in info for next step
             if self.args.hard_attn and self.args.commnet:
@@ -101,7 +126,8 @@ class Trainer(object):
             if should_display:
                 self.env.display()
 
-            trans = Transition(state, action, action_out, value, episode_mask, episode_mini_mask, next_state, reward, misc)
+            trans = Transition(state, action, action_out, value, episode_mask, episode_mini_mask,
+                               next_state, reward, misc)
             episode.append(trans)
             state = next_state
             if done:
@@ -123,8 +149,12 @@ class Trainer(object):
 
         if hasattr(self.env, 'get_stat'):
             merge_stat(self.env.get_stat(), stat)
+
+        # print(stat['comm_'])
+        # print("stat are ", stat)
         return (episode, stat)
 
+    # TODO: Here you might be able make use of GPU.
     def compute_grad(self, batch):
         stat = dict()
         num_actions = self.args.num_actions
@@ -243,10 +273,18 @@ class Trainer(object):
 
     # only used when nprocesses=1
     def train_batch(self, epoch):
+
+        # run_st_time = time.time()
         batch, stat = self.run_batch(epoch)
+
+        # print(f"time taken for data collection is {time.time() - run_st_time}")
+
         self.optimizer.zero_grad()
 
+        # grad_st_time = time.time()
         s = self.compute_grad(batch)
+        # print(f"time taken for grad computation {time.time() - grad_st_time}")
+
         merge_stat(s, stat)
         for p in self.params:
             if p._grad is not None:

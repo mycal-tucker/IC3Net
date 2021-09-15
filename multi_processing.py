@@ -77,15 +77,26 @@ class MultiProcessTrainer(object):
             comm.send(['run_batch', epoch])
 
         # run its own trainer
+        st = time.time()
+        print(f"multi process run batch called")
         batch, stat = self.trainer.run_batch(epoch)
+
+        print("time taken for data collection computation ", time.time() - st)
+
+        grad_st = time.time()
         self.trainer.optimizer.zero_grad()
         s = self.trainer.compute_grad(batch)
+
+        print(f"time for grad {time.time() - grad_st}")
+
         merge_stat(s, stat)
+        print(f"merge stat completed")
 
         # check if workers are finished
         for comm in self.comms:
             s = comm.recv()
             merge_stat(s, stat)
+        print(f"other merge stat completed")
 
         # add gradients of workers
         self.obtain_grad_pointers()
@@ -94,7 +105,11 @@ class MultiProcessTrainer(object):
                 self.grads[i] += g[i]
             self.grads[i] /= stat['num_steps']
 
+        print(f"calling step")
+        op_st = time.time()
         self.trainer.optimizer.step()
+        print(f"time taken for step {time.time() - op_st}")
+
         return stat
 
     def state_dict(self):

@@ -1,16 +1,18 @@
 import torch
 import torch.nn.functional as F
 from torch import nn
-
+import time
 from models import MLP
 from action_utils import select_action, translate_action
+from networks import ProtoNetwork, ProtoLayer
+from noise import OUNoise
 
 class CommNetMLP(nn.Module):
     """
     MLP based CommNet. Uses communication vector to communicate info
     between agents
     """
-    def __init__(self, args, num_inputs):
+    def __init__(self, args, num_inputs, train_mode=True):
         """Initialization method for this class, setup various internal networks
         and weights
 
@@ -26,20 +28,46 @@ class CommNetMLP(nn.Module):
         self.hid_size = args.hid_size
         self.comm_passes = args.comm_passes
         self.recurrent = args.recurrent
-
         self.continuous = args.continuous
+
+        # TODO: remove this is just for debugging purposes just to verify that the communication is happening in a
+        #  disrete manner
+        self.unique_comms = []
+
+        # defining mode which is useful in the case of prototype layers.
+        self.train_mode = train_mode
+
+        # Only really used when you're using prototypes
+        self.exploration_noise = OUNoise(args.comm_dim)
+
+        # see if you're using discrete communication and using prototypes
+        self.discrete_comm = args.discrete_comm
+        # self.use_proto = args.use_proto
+
+        # num_proto is not really relevant when use_proto is set to False
+        self.num_proto = args.num_proto
+
+        # this is discrete/proto communication which is not to be confused with discrete action. T
+        # Although since the communication is being added to the encoded state directly, it makes things a bit tricky.
+        if args.use_proto:
+            self.proto_layer = ProtoNetwork(args.hid_size, args.comm_dim, args.discrete_comm, num_layers=2,
+                                            hidden_dim=64, num_protos=args.num_proto, constrain_out=False)
+
         if self.continuous:
             self.action_mean = nn.Linear(args.hid_size, args.dim_actions)
             self.action_log_std = nn.Parameter(torch.zeros(1, args.dim_actions))
         else:
             self.heads = nn.ModuleList([nn.Linear(args.hid_size, o)
                                         for o in args.naction_heads])
+
+
         self.init_std = args.init_std if hasattr(args, 'comm_init_std') else 0.2
 
         # Mask for communication
         if self.args.comm_mask_zero:
             self.comm_mask = torch.zeros(self.nagents, self.nagents)
         else:
+            # this just prohibits self communication
             self.comm_mask = torch.ones(self.nagents, self.nagents) \
                             - torch.eye(self.nagents, self.nagents)
 
@@ -48,7 +76,17 @@ class CommNetMLP(nn.Module):
         # between last and first dim, num_agents dimension will be covered.
         # The network below is function r in the paper for encoding
         # initial environment stage
-        self.encoder = nn.Linear(num_inputs, args.hid_size)
+
+        # Note: num_inputs is 29 in the case Predator Prey.
+        # TODO: Since currently you directly add the weighted hidden state to the encoded observation
+        #  the output of the encoder is of the shape hidden. Basically we need to now make sure that in case of
+        #  discrete also the dimension of the output of the state encoder is same as dimension of the output of the
+        #  discrete communication.
+
+        # self.encoder = nn.Linear(num_inputs, args.hid_size)
+
+        # changed this for prototype based method. But should still work in the old case.
+        self.encoder = nn.Linear(num_inputs, args.comm_dim)
 
         # if self.args.env_name == 'starcraft':
         #     self.state_encoder = nn.Linear(num_inputs, num_inputs)
@@ -56,9 +94,17 @@ class CommNetMLP(nn.Module):
         if args.recurrent:
             self.hidd_encoder = nn.Linear(args.hid_size, args.hid_size)
 
+        # TODO: currently the prototype is only being handled for the recurrent case. Do it more generally
         if args.recurrent:
+            # not sure why is hidden dependent on batch size
+            # also the initialised hiddens arent being assigned to anything
             self.init_hidden(args.batch_size)
-            self.f_module = nn.LSTMCell(args.hid_size, args.hid_size)
+
+            # Old code when the input size was equal to the hidden size.
+            # self.f_module = nn.LSTMCell(args.hid_size, args.hid_size)
+
+            self.f_module = nn.LSTMCell(args.comm_dim, args.hid_size)
+
 
         else:
             if args.share_weights:
@@ -73,16 +119,23 @@ class CommNetMLP(nn.Module):
 
         # Our main function for converting current hidden state to next state
         # self.f = nn.Linear(args.hid_size, args.hid_size)
+
         if args.share_weights:
             self.C_module = nn.Linear(args.hid_size, args.hid_size)
             self.C_modules = nn.ModuleList([self.C_module
                                             for _ in range(self.comm_passes)])
         else:
-            self.C_modules = nn.ModuleList([nn.Linear(args.hid_size, args.hid_size)
+            # changed t
+            # self.C_modules = nn.ModuleList([nn.Linear(args.hid_size, args.hid_size)
+            #                                 for _ in range(self.comm_passes)])
+
+            self.C_modules = nn.ModuleList([nn.Linear(args.comm_dim, args.comm_dim)
                                             for _ in range(self.comm_passes)])
+
         # self.C = nn.Linear(args.hid_size, args.hid_size)
 
         # initialise weights as 0
+
         if args.comm_init == 'zeros':
             for i in range(self.comm_passes):
                 self.C_modules[i].weight.data.zero_()
@@ -116,9 +169,12 @@ class CommNetMLP(nn.Module):
 
         if self.args.recurrent:
             x, extras = x
+
+            # In case of recurrent first take out the actual observation and then encode it.
             x = self.encoder(x)
 
             if self.args.rnn_type == 'LSTM':
+                # if you're using the extras would have both the hidden and the cell state.
                 hidden_state, cell_state = extras
             else:
                 hidden_state = extras
@@ -160,11 +216,13 @@ class CommNetMLP(nn.Module):
         #     x = torch.cat([x, maxi], dim=-1)
         #     x = self.tanh(x)
 
+
         x, hidden_state, cell_state = self.forward_state_encoder(x)
 
         batch_size = x.size()[0]
         n = self.nagents
 
+        # this should remain regardless of using prototypes or not.
         num_agents_alive, agent_mask = self.get_agent_mask(batch_size, info)
 
         # Hard Attention - action whether an agent communicates or not
@@ -178,10 +236,49 @@ class CommNetMLP(nn.Module):
 
         for i in range(self.comm_passes):
             # Choose current or prev depending on recurrent
-            comm = hidden_state.view(batch_size, n, self.hid_size) if self.args.recurrent else hidden_state
+
+            # TODO: this will change, basically a prototype layer should be taking in the hidden state.
+            #  and then return comm.
+            # print(f"doing forward hidden state is {hidden_state.size()}")
+
+            # TODO: Currently writing the prototype based method assuming batch size is 1.
+            #  Need to figure out what will happen when batch size isn't 1.
+            if self.args.use_proto:
+                raw_outputs = self.proto_layer(hidden_state)
+
+                # TODO: for now we set explore to True and exploration_noise is also OU and device is also 'cpu'
+                #  During evalutation, set explore to False.
+
+                if self.train_mode:
+                    comm = self.proto_layer.step(raw_outputs, True, self.exploration_noise, 'cpu')
+
+                    # TODO: remove this, its for debug only
+                    # for c in comm:
+                    #     if list(c.detach().numpy()) not in self.unique_comms:
+                    #         self.unique_comms.append(list(c.detach().numpy()))
+
+                else:
+                    comm = self.proto_layer.step(raw_outputs, False, self.exploration_noise, 'cpu')
+
+                    # TODO: Remove this is for debug only
+                    # for c in comm:
+                    #     if list(c.detach().numpy()) not in self.unique_comms:
+                    #         self.unique_comms.append(list(c.detach().numpy()))
+
+
+            else:
+                # print(f"inside else {hidden_state.size()}")
+                comm = hidden_state
+                assert self.args.comm_dim == self.args.hid_size , "If not using protos comm dim should be same as hid"
+
+            # comm = hidden_state.view(batch_size, n, self.hid_size) if self.args.recurrent else hidden_state
+            comm  = comm.view(batch_size, n, self.args.comm_dim) if self.args.recurrent else comm
 
             # Get the next communication vector based on next hidden state
-            comm = comm.unsqueeze(-2).expand(-1, n, n, self.hid_size)
+            # comm = comm.unsqueeze(-2).expand(-1, n, n, self.hid_size)
+
+            # changed for accomadating prototype based approach as well.
+            comm = comm.unsqueeze(-2).expand(-1, n, n, self.args.comm_dim)
 
             # Create mask for masking self communication
             mask = self.comm_mask.view(1, n, n)
@@ -191,6 +288,7 @@ class CommNetMLP(nn.Module):
             mask = mask.expand_as(comm)
             comm = comm * mask
 
+            # print("comm mode ", self.args.comm_mode)
             if hasattr(self.args, 'comm_mode') and self.args.comm_mode == 'avg' \
                 and num_agents_alive > 1:
                 comm = comm / (num_agents_alive - 1)
@@ -203,6 +301,7 @@ class CommNetMLP(nn.Module):
 
             # Combine all of C_j for an ith agent which essentially are h_j
             comm_sum = comm.sum(dim=1)
+
             c = self.C_modules[i](comm_sum)
 
 
@@ -210,7 +309,9 @@ class CommNetMLP(nn.Module):
                 # skip connection - combine comm. matrix and encoded input for all agents
                 inp = x + c
 
-                inp = inp.view(batch_size * n, self.hid_size)
+                # inp = inp.view(batch_size * n, self.hid_size)
+
+                inp = inp.view(batch_size * n, self.args.comm_dim)
 
                 output = self.f_module(inp, (hidden_state, cell_state))
 
@@ -237,6 +338,7 @@ class CommNetMLP(nn.Module):
         else:
             # discrete actions
             action = [F.log_softmax(head(h), dim=-1) for head in self.heads]
+            # print(f"uses discrete actions {action}")
 
         if self.args.recurrent:
             return action, value_head, (hidden_state.clone(), cell_state.clone())

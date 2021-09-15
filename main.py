@@ -148,9 +148,9 @@ if args.ic3net:
 
     # For TJ set comm action to 1 as specified in paper to showcase
     # importance of individual rewards even in cooperative games
-    if args.env_name == "traffic_junction":
-        # args.comm_action_one = True
-        args.comm_action_one = False
+    # if args.env_name == "traffic_junction":
+    #     # args.comm_action_one = True
+    #     args.comm_action_one = False
 
 # Enemy comm
 # this is set to 3 in predator-prey -> for the basic version. You can compare for other versions too.
@@ -201,6 +201,7 @@ print(args)
 # since for ic3net case, commnet is true policy is commnetMLP.
 if args.commnet:
     print("using commnet")
+    # TODO: You can try moving this to device
     policy_net = CommNetMLP(args, num_inputs)
 elif args.random:
     policy_net = Random(args, num_inputs)
@@ -278,7 +279,8 @@ history = defaultdict(list)
 start_epoch  = 0
 
 def run(num_epochs):
-    for ep in range(start_epoch, start_epoch + num_epochs):
+    # for ep in range(start_epoch, start_epoch + num_epochs):
+    for ep in range(start_epoch, num_epochs):
         epoch_begin_time = time.time()
         stat = dict()
 
@@ -287,7 +289,9 @@ def run(num_epochs):
         for n in range(args.epoch_size):
             if n == args.epoch_size - 1 and args.display:
                 trainer.display = True
+            # print(f"train batch called")
             s = trainer.train_batch(ep)
+            # print(f"train batch completed")
             merge_stat(s, stat)
             trainer.display = False
 
