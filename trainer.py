@@ -163,10 +163,10 @@ class Trainer(object):
         n = self.args.nagents
         batch_size = len(batch.state)
 
-        rewards = torch.Tensor(batch.reward)
-        episode_masks = torch.Tensor(batch.episode_mask)
-        episode_mini_masks = torch.Tensor(batch.episode_mini_mask)
-        actions = torch.Tensor(batch.action)
+        rewards = torch.Tensor(np.array(batch.reward))
+        episode_masks = torch.Tensor(np.array(batch.episode_mask))
+        episode_mini_masks = torch.Tensor(np.array(batch.episode_mini_mask))
+        actions = torch.Tensor(np.array(batch.action))
         actions = actions.transpose(1, 2).view(-1, n, dim_actions)
 
         # old_actions = torch.Tensor(np.concatenate(batch.action, 0))

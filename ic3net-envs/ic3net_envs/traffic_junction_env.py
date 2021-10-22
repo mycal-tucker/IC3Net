@@ -59,7 +59,7 @@ class TrafficJunctionEnv(gym.Env):
 
     def init_args(self, parser):
         env = parser.add_argument_group('Traffic Junction task')
-        env.add_argument('--dim', type=int, default=5,
+        env.add_argument('--dim', type=int, default=6,
                          help="Dimension of box (i.e length of road) ")
         env.add_argument('--vision', type=int, default=1,
                          help="Vision of car")
