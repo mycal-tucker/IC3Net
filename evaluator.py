@@ -16,12 +16,10 @@ class Evaluator:
         self.args = args
         self.policy_net = policy_net
         self.env = env
-        self.display = False
-        self.last_step = False
+        self.display = args.display
 
 
     def run_episode(self, epoch=1):
-
         all_comms = []
         episode = []
         reset_args = getargspec(self.env.reset).args
@@ -29,10 +27,7 @@ class Evaluator:
             state = self.env.reset(epoch)
         else:
             state = self.env.reset()
-        should_display = self.display and self.last_step
 
-        if should_display:
-            self.env.display()
         stat = dict()
         info = dict()
         switch_t = -1
@@ -75,7 +70,6 @@ class Evaluator:
                 if hasattr(self.args, 'enemy_comm') and self.args.enemy_comm:
                     stat['enemy_comm']  = stat.get('enemy_comm', 0)  + info['comm_action'][self.args.nfriendly:]
 
-
             if 'alive_mask' in info:
                 misc['alive_mask'] = info['alive_mask'].reshape(reward.shape)
             else:
@@ -99,7 +93,7 @@ class Evaluator:
                 if 'is_completed' in info:
                     episode_mini_mask = 1 - info['is_completed'].reshape(-1)
 
-            if should_display:
+            if self.display and done:
                 self.env.display()
 
             trans = Transition(state, action, action_out, value, episode_mask, episode_mini_mask, next_state, reward, misc)
@@ -120,7 +114,6 @@ class Evaluator:
             stat['reward'] = stat.get('reward', 0) + reward[:self.args.nfriendly]
             if hasattr(self.args, 'enemy_comm') and self.args.enemy_comm:
                 stat['enemy_reward'] = stat.get('enemy_reward', 0) + reward[self.args.nfriendly:]
-
 
         if hasattr(self.env, 'get_stat'):
             merge_stat(self.env.get_stat(), stat)
