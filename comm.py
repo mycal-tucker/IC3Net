@@ -1,10 +1,7 @@
 import torch
 import torch.nn.functional as F
 from torch import nn
-import time
-from models import MLP
-from action_utils import select_action, translate_action
-from networks import ProtoNetwork, ProtoLayer
+from nns.networks import ProtoNetwork
 from noise import OUNoise
 
 class CommNetMLP(nn.Module):

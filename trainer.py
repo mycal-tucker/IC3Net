@@ -169,10 +169,6 @@ class Trainer(object):
         actions = torch.Tensor(np.array(batch.action))
         actions = actions.transpose(1, 2).view(-1, n, dim_actions)
 
-        # old_actions = torch.Tensor(np.concatenate(batch.action, 0))
-        # old_actions = old_actions.view(-1, n, dim_actions)
-        # print(old_actions == actions)
-
         # can't do batch forward.
         values = torch.cat(batch.value, dim=0)
         action_out = list(zip(*batch.action_out))
@@ -183,15 +179,11 @@ class Trainer(object):
         coop_returns = torch.Tensor(batch_size, n)
         ncoop_returns = torch.Tensor(batch_size, n)
         returns = torch.Tensor(batch_size, n)
-        deltas = torch.Tensor(batch_size, n)
         advantages = torch.Tensor(batch_size, n)
         values = values.view(batch_size, n)
 
         prev_coop_return = 0
         prev_ncoop_return = 0
-        prev_value = 0
-        prev_advantage = 0
-
         for i in reversed(range(rewards.size(0))):
             coop_returns[i] = rewards[i] + self.args.gamma * prev_coop_return * episode_masks[i]
             ncoop_returns[i] = rewards[i] + self.args.gamma * prev_ncoop_return * episode_masks[i] * episode_mini_masks[i]
@@ -248,10 +240,7 @@ class Trainer(object):
             stat['entropy'] = entropy.item()
             if self.args.entr > 0:
                 loss -= self.args.entr * entropy
-
-
         loss.backward()
-
         return stat
 
     def run_batch(self, epoch):

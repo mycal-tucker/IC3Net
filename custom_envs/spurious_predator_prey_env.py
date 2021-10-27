@@ -10,9 +10,9 @@ class SpuriousPredatorPreyEnv(gym.Env):
         self.__version__ = "0.0.1"
         self.vision = 0
 
-        self.OUTSIDE_CLASS = 1
-        self.PREY_CLASS = 2
-        self.PREDATOR_CLASS = 3
+        self.OUTSIDE_CLASS = 2
+        self.PREY_CLASS = 1
+        self.PREDATOR_CLASS = 0
         self.TIMESTEP_PENALTY = -0.05
         self.PREY_REWARD = 0
         self.POS_PREY_REWARD = 0.05
@@ -67,25 +67,30 @@ class SpuriousPredatorPreyEnv(gym.Env):
 
         self.action_space = spaces.MultiDiscrete([self.naction])
 
+        self.num_padded_grid_cells = (self.dims[0] + 2 * self.vision) * (self.dims[1] + 2 * self.vision)
+
         self.num_grid_cells = (self.dims[0] * self.dims[1])
-        self.OUTSIDE_CLASS += self.num_grid_cells
-        self.PREY_CLASS += self.num_grid_cells
-        self.PREDATOR_CLASS += self.num_grid_cells
+        self.OUTSIDE_CLASS += self.num_padded_grid_cells
+        self.PREY_CLASS += self.num_padded_grid_cells
+        self.PREDATOR_CLASS += self.num_padded_grid_cells
 
         # Setting max vocab size for 1-hot encoding. We define vocab_size as the number of possible unique states!?!
-        self.vocab_size = (self.dims[0] + 2 * self.vision)**2
-        #          predator + prey + grid + outside
-
-        # Observation for each agent will be vision * vision ndarray
-        self.observation_space = spaces.Box(low=0, high=1, shape=(self.vocab_size, (2 * self.vision) + 1,
-                                                                  (2 * self.vision) + 1), dtype=int)
-        # Actual observation will be of the shape 1 * npredator * (2v+1) * (2v+1) * vocab_size
-
-        # set seed too
+        # The state space is defined by, for each visible location, what's there.
+        # There are (self.dims[0] + 2 * self.vision)**2 visible locations because you can see off the grid.
+        # At each location, a location can be:
+        # 1) Off the grid
+        # 2) Have an integer number of predators there
+        # 3) Have an integer number of prey there.
+        # So, the state space is num locations x 3 x max_num_predators.
+        # Observations are the observations for each visible location, which includes the unique id of the location plus
+        # what's there.
+        self.observation_dim = self.num_padded_grid_cells + 3
+        # Observation for each agent will be, for each visible cell, the location of that cell and what's in it.
+        self.observation_space = spaces.Box(low=0, high=self.npredator, shape=(2 * self.vision + 1,
+                                                                               2 * self.vision + 1,
+                                                                               self.observation_dim), dtype=int)
         if args.seed != -1:
             np.random.seed(args.seed)
-
-        return
 
     def step(self, action):
         """
@@ -135,12 +140,14 @@ class SpuriousPredatorPreyEnv(gym.Env):
         locs = self._get_coordinates()
         self.predator_loc, self.prey_loc = locs[:self.npredator], locs[self.npredator:]
 
-        self._set_grid()
+        # Reset the grid
+        self.grid = np.zeros(self.num_grid_cells).reshape(self.dims)
+        # Padding for vision
+        self.grid = np.pad(self.grid, self.vision, 'constant', constant_values = self.OUTSIDE_CLASS)
+        self.empty_bool_base_grid = self._onehot_initialization()
 
         # stat - like success ratio
         self.stat = dict()
-
-        # Observation will be npredator * vision * vision ndarray
         self.obs = self._get_obs()
         return self.obs
 
@@ -151,40 +158,44 @@ class SpuriousPredatorPreyEnv(gym.Env):
         idx = np.random.choice(np.prod(self.dims), (self.npredator + self.nprey), replace=False)
         return np.vstack(np.unravel_index(idx, self.dims)).T
 
-    def _set_grid(self):
-        self.grid = np.arange(self.num_grid_cells).reshape(self.dims)
-        # Mark agents in grid
-        # self.grid[self.predator_loc[:,0], self.predator_loc[:,1]] = self.predator_ids
-        # self.grid[self.prey_loc[:,0], self.prey_loc[:,1]] = self.prey_ids
-
-        # Padding for vision
-        self.grid = np.pad(self.grid, self.vision, 'constant', constant_values = self.OUTSIDE_CLASS)
-
-        self.empty_bool_base_grid = self._onehot_initialization(self.grid)
-
     def _get_obs(self):
-        bool_base_grid = self.empty_bool_base_grid.copy()
-
-        for i, p in enumerate(self.predator_loc):
-            bool_base_grid[p[0] + self.vision, p[1] + self.vision, self.PREDATOR_CLASS] += 1
-
-        for i, p in enumerate(self.prey_loc):
-            bool_base_grid[p[0] + self.vision, p[1] + self.vision, self.PREY_CLASS] += 1
-
+        bool_base_grid = self.get_true_state()
+        # Agents only observe parts of the state.
         obs = []
         for p in self.predator_loc:
-            slice_y = slice(p[0], p[0] + (2 * self.vision) + 1)
-            slice_x = slice(p[1], p[1] + (2 * self.vision) + 1)
-            obs.append(bool_base_grid[slice_y, slice_x])
+            p_obs = []
+            for visible_x in range(p[0] - self.vision, p[0] + self.vision + 1):
+                row_obs = []
+                for visible_y in range(p[1] - self.vision, p[1] + self.vision + 1):
+                    single_obs = bool_base_grid[self.__idxs_to_global__(visible_x, visible_y)]
+                    row_obs.append(single_obs)
+                p_obs.append(np.stack(row_obs))
+            obs.append(np.stack(p_obs))
 
         if self.enemy_comm:
             for p in self.prey_loc:
-                slice_y = slice(p[0], p[0] + (2 * self.vision) + 1)
-                slice_x = slice(p[1], p[1] + (2 * self.vision) + 1)
-                obs.append(bool_base_grid[slice_y, slice_x])
+                p_obs = []
+                for visible_x in range(p[0] - self.vision, p[0] + self.vision + 1):
+                    row_obs = []
+                    for visible_y in range(p[1] - self.vision, p[1] + self.vision + 1):
+                        single_obs = bool_base_grid[self.__idxs_to_global__(visible_x, visible_y)]
+                        row_obs.append(single_obs)
+                    p_obs.append(np.stack(row_obs))
+                obs.append(np.stack(p_obs))
 
         obs = np.stack(obs)
         return obs
+
+    def get_true_state(self):
+        """Returns the true state of the world rather than observations of it."""
+        # Populate a grid with the true locations of everything.
+        bool_base_grid = self.empty_bool_base_grid.copy()
+        for i, p in enumerate(self.predator_loc):
+            bool_base_grid[self.__idxs_to_global__(p[0] + self.vision, p[1] + self.vision), self.PREDATOR_CLASS] += 1
+        for i, p in enumerate(self.prey_loc):
+            bool_base_grid[self.__idxs_to_global__(p[0] + self.vision, p[1] + self.vision), self.PREY_CLASS] += 1
+        # Then just return that grid.
+        return bool_base_grid
 
     def _take_action(self, idx, act):
         # prey action
@@ -269,17 +280,25 @@ class SpuriousPredatorPreyEnv(gym.Env):
     def reward_terminal(self):
         return np.zeros_like(self._get_reward())
 
-    def _onehot_initialization(self, a):
-        # This seems to be to say which location is being looked at.
-        ncols = self.vocab_size
-        out = np.zeros(a.shape + (ncols,), dtype=int)
-        out[self._all_idx(a, axis=2)] = 1
-        return out
+    def _onehot_initialization(self):
+        # Each row has a unique id of the location, plus extra slots denoting:
+        # 1) How many predators are there
+        # 2) How many prey are there
+        # 3) Whether the cell is outside or not.
+        one_hot_array = np.zeros((self.num_padded_grid_cells, self.observation_dim))
+        global_idx = 0
+        for row_idx, row in enumerate(self.grid):
+            for col_idx in range(row.shape[0]):
+                one_hot_array[global_idx][global_idx] = 1
+                if row_idx < self.vision or row_idx >= self.dims[0] + self.vision or\
+                    col_idx < self.vision or col_idx >= self.dims[1] + self.vision:
+                    one_hot_array[global_idx][-1] = 1
+                global_idx += 1
+        return one_hot_array
 
-    def _all_idx(self, idx, axis):
-        grid = np.ogrid[tuple(map(slice, idx.shape))]
-        grid.insert(axis, idx)
-        return tuple(grid)
+    def __idxs_to_global__(self, row, col):
+        """Helper function maps a row and column to the global id; used for indexing into state."""
+        return (self.dims[0] + self.vision * 2) * row + col
 
     def render(self, mode='human', close=False):
         grid = np.zeros(self.num_grid_cells, dtype=object).reshape(self.dims)

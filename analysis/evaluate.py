@@ -6,7 +6,7 @@ from action_utils import parse_action_args
 from args import get_args
 from comm import CommNetMLP
 from evaluator import Evaluator
-from models import *
+from nns.models import *
 from utils import *
 
 torch.utils.backcompat.broadcast_warning.enabled = True

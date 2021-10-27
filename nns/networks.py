@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.autograd import Variable
 import time
-from network_utils import gumbel_softmax, onehot_from_logits
+from nns.network_utils import gumbel_softmax, onehot_from_logits
 
 
 class ProtoLayer(nn.Module):

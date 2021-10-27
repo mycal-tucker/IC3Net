@@ -1,13 +1,10 @@
-import sys, os
-import time, shutil
+import os
 import signal
 import argparse
 from tensorboardX import SummaryWriter
-import numpy as np
-import torch
 # import visdom
 import data
-from models import *
+from nns.models import *
 from comm import CommNetMLP
 from utils import *
 from action_utils import parse_action_args
