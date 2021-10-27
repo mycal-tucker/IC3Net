@@ -109,6 +109,7 @@ def init_args_for_env(parser):
         'levers': 'Levers-v0',
         'number_pairs': 'NumberPairs-v0',
         'predator_prey': 'PredatorPrey-v0',
+        'spurious': 'Spurious-v0',
         'traffic_junction': 'TrafficJunction-v0',
         'starcraft': 'StarCraftWrapper-v0'
     }
@@ -124,6 +125,7 @@ def init_args_for_env(parser):
 
     import gym
     import ic3net_envs
+    import custom_envs
 
     if env_name == 'starcraft':
         import gym_starcraft

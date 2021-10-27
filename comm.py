@@ -30,10 +30,6 @@ class CommNetMLP(nn.Module):
         self.recurrent = args.recurrent
         self.continuous = args.continuous
 
-        # TODO: remove this is just for debugging purposes just to verify that the communication is happening in a
-        #  disrete manner
-        self.unique_comms = []
-
         # defining mode which is useful in the case of prototype layers.
         self.train_mode = train_mode
 
@@ -104,8 +100,6 @@ class CommNetMLP(nn.Module):
             # self.f_module = nn.LSTMCell(args.hid_size, args.hid_size)
 
             self.f_module = nn.LSTMCell(args.comm_dim, args.hid_size)
-
-
         else:
             if args.share_weights:
                 self.f_module = nn.Linear(args.hid_size, args.hid_size)
@@ -235,8 +229,6 @@ class CommNetMLP(nn.Module):
         agent_mask_transpose = agent_mask.transpose(1, 2)
 
         for i in range(self.comm_passes):
-            # Choose current or prev depending on recurrent
-
             # TODO: this will change, basically a prototype layer should be taking in the hidden state.
             #  and then return comm.
             # print(f"doing forward hidden state is {hidden_state.size()}")
@@ -251,28 +243,13 @@ class CommNetMLP(nn.Module):
 
                 if self.train_mode:
                     comm = self.proto_layer.step(raw_outputs, True, self.exploration_noise, 'cpu')
-
-                    # TODO: remove this, its for debug only
-                    # for c in comm:
-                    #     if list(c.detach().numpy()) not in self.unique_comms:
-                    #         self.unique_comms.append(list(c.detach().numpy()))
-
                 else:
                     comm = self.proto_layer.step(raw_outputs, False, self.exploration_noise, 'cpu')
-
-                    # TODO: Remove this is for debug only
-                    # for c in comm:
-                    #     if list(c.detach().numpy()) not in self.unique_comms:
-                    #         self.unique_comms.append(list(c.detach().numpy()))
-
-
             else:
-                # print(f"inside else {hidden_state.size()}")
                 comm = hidden_state
-                assert self.args.comm_dim == self.args.hid_size , "If not using protos comm dim should be same as hid"
+                assert self.args.comm_dim == self.args.hid_size, "If not using protos comm dim should be same as hid"
 
-            # comm = hidden_state.view(batch_size, n, self.hid_size) if self.args.recurrent else hidden_state
-            comm  = comm.view(batch_size, n, self.args.comm_dim) if self.args.recurrent else comm
+            comm = comm.view(batch_size, n, self.args.comm_dim) if self.args.recurrent else comm
 
             # Get the next communication vector based on next hidden state
             # comm = comm.unsqueeze(-2).expand(-1, n, n, self.hid_size)
@@ -303,7 +280,6 @@ class CommNetMLP(nn.Module):
             comm_sum = comm.sum(dim=1)
 
             c = self.C_modules[i](comm_sum)
-
 
             if self.args.recurrent:
                 # skip connection - combine comm. matrix and encoded input for all agents

@@ -204,12 +204,14 @@ if args.commnet:
     # TODO: You can try moving this to device
     policy_net = CommNetMLP(args, num_inputs)
 elif args.random:
+    print("Using random")
     policy_net = Random(args, num_inputs)
-
 # this is what we are working with for IC3 Net predator prey.
 elif args.recurrent:
+    print("Using rnn")
     policy_net = RNN(args, num_inputs)
 else:
+    print("Using policynet")
     policy_net = MLP(args, num_inputs)
 
 if not args.display:
@@ -220,7 +222,6 @@ for p in policy_net.parameters():
     p.data.share_memory_()
 
 if args.nprocesses > 1:
-
     # this is the main trainer. This is where the environment is being passed.
     trainer = MultiProcessTrainer(args, lambda: Trainer(args, policy_net, data.init(args.env_name, args)))
 
@@ -264,7 +265,7 @@ if not args.restore:
     #     shutil.rmtree(log_path)
     #     print("delete log done")
     assert os.path.exists(log_path) == False, "The save directory already exists, use load instead if you want to continue" \
-                                              "training"
+                                              " training" + str(log_path)
     os.makedirs(log_path, exist_ok=True)
     logger = SummaryWriter(log_path)
 

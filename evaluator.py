@@ -93,7 +93,8 @@ class Evaluator:
                 if 'is_completed' in info:
                     episode_mini_mask = 1 - info['is_completed'].reshape(-1)
 
-            if self.display and done:
+            # if self.display and done:
+            if self.display:
                 self.env.display()
 
             trans = Transition(state, action, action_out, value, episode_mask, episode_mini_mask, next_state, reward, misc)

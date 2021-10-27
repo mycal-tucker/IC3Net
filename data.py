@@ -1,6 +1,4 @@
-import sys
 import gym
-import ic3net_envs
 from env_wrappers import *
 
 def init(env_name, args, final_init=True):
@@ -15,6 +13,12 @@ def init(env_name, args, final_init=True):
         env = GymWrapper(env)
     elif env_name == 'predator_prey':
         env = gym.make('PredatorPrey-v0')
+        if args.display:
+            env.init_curses()
+        env.multi_agent_init(args)
+        env = GymWrapper(env)
+    elif env_name == 'spurious':
+        env = gym.make('Spurious-v0')
         if args.display:
             env.init_curses()
         env.multi_agent_init(args)

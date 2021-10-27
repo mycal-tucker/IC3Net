@@ -85,12 +85,14 @@ def run_eval(_):
     print(args.seed)
 
     if args.commnet:
+        print("Creating commnet mlp")
         policy_net = CommNetMLP(args, num_inputs, train_mode=False)
     elif args.random:
         policy_net = Random(args, num_inputs)
 
     # this is what we are working with for IC3 Net predator prey.
     elif args.recurrent:
+        print("Creating an RNN!")
         policy_net = RNN(args, num_inputs)
     else:
         policy_net = MLP(args, num_inputs)
