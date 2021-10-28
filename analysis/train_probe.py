@@ -8,14 +8,15 @@ from torch.utils.data import TensorDataset, DataLoader
 
 # Proof of concept of training a probe.
 # TODO: break into reusable chunks eventually so we can train a probe inline with other scripts.
+# TODO: use args for looking up data
 
 # 1) Load a tracker, which has already been populated by running eval.
-tracker = GameTracker.from_file('trained_models/spurious/proto_fixed/seed1/tracker.pkl')
+tracker = GameTracker.from_file('trained_models/spurious/disc/seed0/tracker.pkl')
 print("tracker len", len(tracker.data))
 
 # Which agent are you going to use for the hidden states and observations.
 
-agent_id = 2
+agent_id = 3
 # Examples
 c0 = tracker.data[0][2][0].detach().numpy()
 h0 = tracker.data[0][2][1].detach().numpy()
@@ -54,7 +55,7 @@ test_dataloader = DataLoader(test_set, batch_size=32, shuffle=False)
 # 4) Do the training.
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.SGD(c_probe.parameters(), lr=0.001, momentum=0.9)
-for epoch in range(10):
+for epoch in range(100):
     running_loss = 0.0
     for i, data in enumerate(train_dataloader):
         inputs, labels = data

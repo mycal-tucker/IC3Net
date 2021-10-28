@@ -18,6 +18,7 @@ class SpuriousPredatorPreyEnv(gym.Env):
         self.POS_PREY_REWARD = 0.05
         self.episode_over = False
         self.stdscr = None
+        self.timestep = None
 
     def init_curses(self):
         self.stdscr = curses.initscr()
@@ -123,6 +124,7 @@ class SpuriousPredatorPreyEnv(gym.Env):
         self.obs = self._get_obs()
         # print(self.obs)
         debug = {'predator_locs': self.predator_loc, 'prey_locs': self.prey_loc}
+        self.timestep += 1
         return self.obs, self._get_reward(), self.episode_over, debug
 
     def reset(self):
@@ -134,6 +136,7 @@ class SpuriousPredatorPreyEnv(gym.Env):
         observation (object): the initial observation of the space.
         """
         self.episode_over = False
+        self.timestep = 0
         self.reached_prey = np.zeros(self.npredator)
 
         # Locations
@@ -179,6 +182,8 @@ class SpuriousPredatorPreyEnv(gym.Env):
                     row_obs = []
                     for visible_y in range(p[1] - self.vision, p[1] + self.vision + 1):
                         single_obs = bool_base_grid[self.__idxs_to_global__(visible_x, visible_y)]
+                        if self.timestep > 0:
+                            single_obs = np.zeros_like(single_obs)
                         row_obs.append(single_obs)
                     p_obs.append(np.stack(row_obs))
                 obs.append(np.stack(p_obs))

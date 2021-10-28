@@ -111,7 +111,7 @@ def run_eval(_):
     st_time = time.time()
 
     # TODO: Run for multiple episodes.
-    for i in range(10):
+    for i in range(500):
         ep, stat, all_comms = evaluator.run_episode()
         print(stat)
     if args.use_tracker:
