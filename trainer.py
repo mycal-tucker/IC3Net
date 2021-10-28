@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch import optim
 import torch.nn as nn
-from utils import *
+from utils.util_fns import *
 from action_utils import *
 import time
 

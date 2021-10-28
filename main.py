@@ -6,7 +6,7 @@ from tensorboardX import SummaryWriter
 import data
 from nns.models import *
 from comm import CommNetMLP
-from utils import *
+from utils.util_fns import *
 from action_utils import parse_action_args
 from trainer import Trainer
 from multi_processing import MultiProcessTrainer

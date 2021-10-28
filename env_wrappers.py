@@ -109,3 +109,6 @@ class GymWrapper(object):
             return self.env.stat
         else:
             return dict()
+
+    def get_true_state(self):
+        return self.env.get_true_state()

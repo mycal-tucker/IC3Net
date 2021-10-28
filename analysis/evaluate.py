@@ -7,7 +7,7 @@ from args import get_args
 from comm import CommNetMLP
 from evaluator import Evaluator
 from nns.models import *
-from utils import *
+from utils.util_fns import *
 
 torch.utils.backcompat.broadcast_warning.enabled = True
 torch.utils.backcompat.keepdim_warning.enabled = True
@@ -114,6 +114,9 @@ def run_eval(_):
     for i in range(10):
         ep, stat, all_comms = evaluator.run_episode()
         print(stat)
+    if args.use_tracker:
+        tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), "tracker.pkl")
+        evaluator.tracker.to_file(tracker_path)
 
     total_episode_time = time.time() - st_time
 

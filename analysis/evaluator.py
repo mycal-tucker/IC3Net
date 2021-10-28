@@ -4,8 +4,9 @@ import numpy as np
 import torch
 from torch import optim
 import torch.nn as nn
-from utils import *
+from utils.util_fns import *
 from action_utils import *
+from utils.game_tracker import GameTracker
 
 Transition = namedtuple('Transition', ('state', 'action', 'action_out', 'value', 'episode_mask', 'episode_mini_mask', 'next_state',
                                        'reward', 'misc'))
@@ -17,7 +18,7 @@ class Evaluator:
         self.policy_net = policy_net
         self.env = env
         self.display = args.display
-
+        self.tracker = GameTracker(max_size=5000) if args.use_tracker else None
 
     def run_episode(self, epoch=1):
         all_comms = []
@@ -60,6 +61,9 @@ class Evaluator:
             action, actual = translate_action(self.args, self.env, action)
             next_state, reward, done, info = self.env.step(actual)
 
+            if self.tracker:
+                full_state = self.env.get_true_state()
+                self.tracker.add_data(full_state, next_state, prev_hid)
             # store comm_action in info for next step
             if self.args.hard_attn and self.args.commnet:
                 info['comm_action'] = action[-1] if not self.args.comm_action_one else np.ones(self.args.nagents, dtype=int)

@@ -114,4 +114,7 @@ def get_args():
      parser.add_argument('--restore', action='store_true', default=False,
                          help='plot training progress')
 
+    # Eval parameters
+     parser.add_argument('--use_tracker', default=False, action='store_true',
+                         help='Whether to store execution data in a tracker during eval.')
      return parser
