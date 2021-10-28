@@ -40,7 +40,7 @@ for state, _, _ in tracker.data:
 y_data = np.array(y_data)
 
 # 2) Initialize a net to predict prey location.
-c_probe = Probe(c_dim, num_locations)
+c_probe = Probe(c_dim, num_locations, num_layers=3)
 
 # 3) Put all the data in a dataloader
 my_dataset = TensorDataset(torch.Tensor(c_data), torch.Tensor(y_data))
