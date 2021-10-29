@@ -1,15 +1,16 @@
-import torch
 import torch.optim as optim
-import torch.nn as nn
-from utils.game_tracker import GameTracker
-import numpy as np
-from nns.probe import Probe
-from torch.utils.data import TensorDataset, DataLoader
-from args import get_args
-from utils.util_fns import *
 import os
 
 import matplotlib.pyplot as plt
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import TensorDataset, DataLoader
+
+from args import get_args
+from nns.probe import Probe
+from utils.game_tracker import GameTracker
+from utils.util_fns import *
+
 
 # Proof of concept of training a probe.
 # TODO: break into reusable chunks eventually so we can train a probe inline with other scripts.
