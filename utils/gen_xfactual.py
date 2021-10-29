@@ -19,7 +19,7 @@ def gen_counterfactual(z, probe, s_prime):
     loss = 100
     while loss > min_loss:
         optimizer.zero_grad()
-        outputs = probe(torch.Tensor(z_prime.float()))
+        outputs = probe(torch.Tensor(z_prime))
         loss = criterion(outputs, s_prime)
         loss.backward()
         optimizer.step()

@@ -16,22 +16,13 @@ torch.set_default_tensor_type('torch.DoubleTensor')
 
 def run_eval(_):
     def load(path):
-        # d = torch.load(path)
-        # policy_net.load_state_dict(d['policy_net'])
-
         load_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), "models")
         print(f"load directory is {load_path}")
         log_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), "logs")
         print(f"log dir directory is {log_path}")
-        save_path = load_path
 
-        if 'model.pt' in os.listdir(load_path):
-            model_path = os.path.join(load_path, "model.pt")
-
-        else:
-            all_models = sort([int(f.split('.pt')[0]) for f in os.listdir(load_path)])
-            model_path = os.path.join(load_path, f"{all_models[-1]}.pt")
-
+        assert 'model.pt' in os.listdir(load_path), "No model to load!?"
+        model_path = os.path.join(load_path, "model.pt")
         d = torch.load(model_path)
         policy_net.load_state_dict(d['policy_net'])
 
@@ -74,7 +65,6 @@ def run_eval(_):
         args.recurrent = True
         args.rnn_type = 'LSTM'
 
-
     parse_action_args(args)
 
     if args.seed == -1:
@@ -111,7 +101,7 @@ def run_eval(_):
     st_time = time.time()
 
     # TODO: Run for multiple episodes.
-    for i in range(500):
+    for i in range(20):
         ep, stat, all_comms = evaluator.run_episode()
         print(stat)
     if args.use_tracker:

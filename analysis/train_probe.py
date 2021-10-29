@@ -53,7 +53,7 @@ def train_probe():
 
     # 3) Put all the data in a dataloader
     my_dataset = TensorDataset(torch.Tensor(c_data), torch.Tensor(y_data))
-    frac = 0.5
+    frac = 0.75
     train_len = int(len(my_dataset) * frac)
     test_len = len(my_dataset) - train_len
     train_set, test_set = torch.utils.data.random_split(my_dataset, [train_len, test_len])
