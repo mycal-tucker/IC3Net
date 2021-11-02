@@ -23,12 +23,16 @@ class Evaluator:
         tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'tracker.pkl')
         old_tracker = GameTracker.from_file(tracker_path)
 
-        probe_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'c_probe.pth')
+        c_probe_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'c_probe.pth')
+        h_probe_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'h_probe.pth')
         c_dim = old_tracker.data[0][2][0].detach().numpy().shape[1]
         num_locations = old_tracker.data[0][0].shape[0]
         self.c_probe = Probe(c_dim, num_locations, num_layers=3)
-        self.c_probe.load_state_dict(torch.load(probe_path))
+        self.c_probe.load_state_dict(torch.load(c_probe_path))
         self.c_probe.eval()
+        self.h_probe = Probe(c_dim, num_locations, num_layers=3)
+        self.h_probe.load_state_dict(torch.load(h_probe_path))
+        self.h_probe.eval()
 
         new_goal = np.zeros((1, num_locations))
         goal_id = 0
@@ -61,14 +65,25 @@ class Evaluator:
                 if self.args.rnn_type == 'LSTM' and t == 0:
                     prev_hid = self.policy_net.init_hidden(batch_size=state.shape[0])
                 # Perform an intervention on the cell state of the prey agent.
-                if t >= 1:  # We seem to need to intervene at every timestep
+                if t >= 0:  # We seem to need to intervene at every timestep
                     start_c = prev_hid[0][3, :]
                     start_c = start_c.detach().numpy()
                     start_c = torch.unsqueeze(torch.Tensor(start_c), 0)
                     x_fact_c = gen_counterfactual(start_c, self.c_probe, self.new_goal)
                     old_c = prev_hid[0]
-                    old_c[self.intervention_agent_id, :] = x_fact_c
-                    prev_hid = (old_c, prev_hid[1])
+                    with torch.no_grad():
+                        old_c[self.intervention_agent_id, :] = x_fact_c
+
+                    # Same for h state
+                    start_h = prev_hid[1][3, :]
+                    start_h = start_h.detach().numpy()
+                    start_h = torch.unsqueeze(torch.Tensor(start_h), 0)
+                    x_fact_h = gen_counterfactual(start_h, self.h_probe, self.new_goal)
+                    old_h = prev_hid[1]
+                    with torch.no_grad():
+                        old_h[self.intervention_agent_id, :] = x_fact_h
+
+                    prev_hid = (old_c, old_h)
                 x = [state, prev_hid]
                 action_out, value, prev_hid = self.policy_net(x, info)
 

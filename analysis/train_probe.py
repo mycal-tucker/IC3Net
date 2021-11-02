@@ -17,7 +17,7 @@ from utils.util_fns import *
 # TODO: use args for looking up data
 
 
-def train_probe():
+def train_probe(from_cell_state=True):
     # 1) Load a tracker, which has already been populated by running eval.
     tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'tracker.pkl')
     tracker = GameTracker.from_file(tracker_path)
@@ -27,13 +27,10 @@ def train_probe():
 
     agent_id = 3
     # Examples
-    c0 = tracker.data[0][2][0].detach().numpy()
-    h0 = tracker.data[0][2][1].detach().numpy()
+    hidden_state_idx = 0 if from_cell_state else 1
+    hidden_dim = tracker.data[0][2][hidden_state_idx].detach().numpy().shape[1]
 
-    c_dim = tracker.data[0][2][0].detach().numpy().shape[1]
-    h_dim = tracker.data[0][2][1].detach().numpy().shape[1]
-
-    c_data = np.array([data_elt[2][0][agent_id].detach().numpy() for data_elt in tracker.data])
+    hidden_data = np.array([data_elt[2][hidden_state_idx][agent_id].detach().numpy() for data_elt in tracker.data])
 
     y_data = []
     num_locations = tracker.data[0][0].shape[0]
@@ -49,10 +46,11 @@ def train_probe():
     y_data = np.array(y_data)
 
     # 2) Initialize a net to predict prey location.
-    c_probe = Probe(c_dim, num_locations, num_layers=3)
+    num_layers = 3 if from_cell_state else 3
+    probe_model = Probe(hidden_dim, num_locations, num_layers=num_layers)
 
     # 3) Put all the data in a dataloader
-    my_dataset = TensorDataset(torch.Tensor(c_data), torch.Tensor(y_data))
+    my_dataset = TensorDataset(torch.Tensor(hidden_data), torch.Tensor(y_data))
     frac = 0.75
     train_len = int(len(my_dataset) * frac)
     test_len = len(my_dataset) - train_len
@@ -60,25 +58,26 @@ def train_probe():
     train_dataloader = DataLoader(train_set, batch_size=32, shuffle=True)
     test_dataloader = DataLoader(test_set, batch_size=32, shuffle=False)
 
-    probe_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'c_probe.pth')
+    path_name = 'c_probe.pth' if from_cell_state else 'h_probe.pth'
+    probe_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), path_name)
     if args.train:
         # 4) Do the training.
         criterion = nn.CrossEntropyLoss()
-        optimizer = optim.SGD(c_probe.parameters(), lr=0.001, momentum=0.9)
+        optimizer = optim.SGD(probe_model.parameters(), lr=0.001, momentum=0.9)
         for epoch in range(100):
             running_loss = 0.0
             for i, data in enumerate(train_dataloader):
                 inputs, labels = data
                 optimizer.zero_grad()
-                outputs = c_probe(inputs)
+                outputs = probe_model(inputs)
                 loss = criterion(outputs, labels)
                 loss.backward()
                 optimizer.step()
 
                 running_loss += loss
             print("Epoch loss", running_loss)
-        torch.save(c_probe.state_dict(), probe_path)
-    c_probe.load_state_dict(torch.load(probe_path))
+        torch.save(probe_model.state_dict(), probe_path)
+    probe_model.load_state_dict(torch.load(probe_path))
     # 5) Do some eval
     correct = 0
     total = 0
@@ -88,7 +87,7 @@ def train_probe():
         for data in test_dataloader:
             images, labels = data
             labels = torch.argmax(labels, dim=1)
-            outputs = c_probe(images)
+            outputs = probe_model(images)
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
@@ -112,5 +111,5 @@ if __name__ == '__main__':
     parser = get_args()
     init_args_for_env(parser)
     args = parser.parse_args()
-    args.train = False  # Set by hand for now.
-    train_probe()
+    args.train = True  # Set by hand for now.
+    train_probe(False)
