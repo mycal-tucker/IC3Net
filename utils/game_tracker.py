@@ -9,8 +9,8 @@ class GameTracker:
         self.curr_idx = 0
         self.data = []
 
-    def add_data(self, state, observations, hidden_states):
-        data_tuple = (state, observations, hidden_states)
+    def add_data(self, state, observations, hidden_states, timestep):
+        data_tuple = (state, observations, hidden_states, timestep)
         if len(self.data) < self.max_size:
             self.data.append(data_tuple)
         else:

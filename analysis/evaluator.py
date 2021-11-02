@@ -23,8 +23,11 @@ class Evaluator:
         tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'tracker.pkl')
         old_tracker = GameTracker.from_file(tracker_path)
 
-        c_probe_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'c_probe.pth')
-        h_probe_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'h_probe.pth')
+        intervention_agent_id = 3
+        c_probe_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'c_probe_' +
+                                    str(intervention_agent_id) + '.pth')
+        h_probe_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'h_probe_' +
+                                    str(intervention_agent_id) + '.pth')
         c_dim = old_tracker.data[0][2][0].detach().numpy().shape[1]
         num_locations = old_tracker.data[0][0].shape[0]
         self.c_probe = Probe(c_dim, num_locations, num_layers=3)
@@ -66,22 +69,22 @@ class Evaluator:
                     prev_hid = self.policy_net.init_hidden(batch_size=state.shape[0])
                 # Perform an intervention on the cell state of the prey agent.
                 if t >= 0:  # We seem to need to intervene at every timestep
+                    old_c = prev_hid[0]
                     start_c = prev_hid[0][3, :]
                     start_c = start_c.detach().numpy()
                     start_c = torch.unsqueeze(torch.Tensor(start_c), 0)
                     x_fact_c = gen_counterfactual(start_c, self.c_probe, self.new_goal)
-                    old_c = prev_hid[0]
                     with torch.no_grad():
                         old_c[self.intervention_agent_id, :] = x_fact_c
 
                     # Same for h state
-                    start_h = prev_hid[1][3, :]
-                    start_h = start_h.detach().numpy()
-                    start_h = torch.unsqueeze(torch.Tensor(start_h), 0)
-                    x_fact_h = gen_counterfactual(start_h, self.h_probe, self.new_goal)
                     old_h = prev_hid[1]
-                    with torch.no_grad():
-                        old_h[self.intervention_agent_id, :] = x_fact_h
+                    # start_h = prev_hid[1][3, :]
+                    # start_h = start_h.detach().numpy()
+                    # start_h = torch.unsqueeze(torch.Tensor(start_h), 0)
+                    # x_fact_h = gen_counterfactual(start_h, self.h_probe, self.new_goal)
+                    # with torch.no_grad():
+                    #     old_h[self.intervention_agent_id, :] = x_fact_h
 
                     prev_hid = (old_c, old_h)
                 x = [state, prev_hid]
@@ -102,7 +105,7 @@ class Evaluator:
 
             if self.tracker:
                 full_state = self.env.get_true_state()
-                self.tracker.add_data(full_state, next_state, prev_hid)
+                self.tracker.add_data(full_state, next_state, prev_hid, self.env.get_timestep())
             # store comm_action in info for next step
             if self.args.hard_attn and self.args.commnet:
                 info['comm_action'] = action[-1] if not self.args.comm_action_one else np.ones(self.args.nagents, dtype=int)
