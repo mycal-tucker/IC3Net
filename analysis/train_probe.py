@@ -23,7 +23,7 @@ def train_probe(from_cell_state=True):
     print("tracker len", len(tracker.data))
 
     # Which agent are you going to use for the hidden states and observations.
-    agent_id = 3  # We want the prey in this case
+    agent_id = 1  # We want the prey in this case
     hidden_state_idx = 0 if from_cell_state else 1
     hidden_dim = tracker.data[0][2][hidden_state_idx].detach().numpy().shape[1]
 
@@ -64,7 +64,7 @@ def train_probe(from_cell_state=True):
         # 4) Do the training.
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.SGD(probe_model.parameters(), lr=0.001, momentum=0.9)
-        for epoch in range(500):  # Was 100
+        for epoch in range(100):  # Was 100
             running_loss = 0.0
             for i, data in enumerate(train_dataloader):
                 inputs, labels, _ = data

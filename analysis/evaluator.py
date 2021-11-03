@@ -23,11 +23,11 @@ class Evaluator:
         tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'tracker.pkl')
         old_tracker = GameTracker.from_file(tracker_path)
 
-        intervention_agent_id = 3
+        self.intervene_id = 1
         c_probe_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'c_probe_' +
-                                    str(intervention_agent_id) + '.pth')
+                                    str(self.intervene_id) + '.pth')
         h_probe_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'h_probe_' +
-                                    str(intervention_agent_id) + '.pth')
+                                    str(self.intervene_id) + '.pth')
         c_dim = old_tracker.data[0][2][0].detach().numpy().shape[1]
         num_locations = old_tracker.data[0][0].shape[0]
         self.c_probe = Probe(c_dim, num_locations, num_layers=3)
@@ -41,7 +41,6 @@ class Evaluator:
         goal_id = 0
         new_goal[0, goal_id] = 1
         self.new_goal = torch.Tensor(new_goal)
-        self.intervention_agent_id = 3
 
     def run_episode(self, epoch=1):
         all_comms = []
@@ -67,27 +66,12 @@ class Evaluator:
             if self.args.recurrent:
                 if self.args.rnn_type == 'LSTM' and t == 0:
                     prev_hid = self.policy_net.init_hidden(batch_size=state.shape[0])
-                # Perform an intervention on the cell state of the prey agent.
-                if t >= 0:  # We seem to need to intervene at every timestep
-                    old_c = prev_hid[0]
-                    start_c = prev_hid[0][3, :]
-                    start_c = start_c.detach().numpy()
-                    start_c = torch.unsqueeze(torch.Tensor(start_c), 0)
-                    x_fact_c = gen_counterfactual(start_c, self.c_probe, self.new_goal)
-                    with torch.no_grad():
-                        old_c[self.intervention_agent_id, :] = x_fact_c
-
-                    # Same for h state
-                    old_h = prev_hid[1]
-                    # start_h = prev_hid[1][3, :]
-                    # start_h = start_h.detach().numpy()
-                    # start_h = torch.unsqueeze(torch.Tensor(start_h), 0)
-                    # x_fact_h = gen_counterfactual(start_h, self.h_probe, self.new_goal)
-                    # with torch.no_grad():
-                    #     old_h[self.intervention_agent_id, :] = x_fact_h
-
-                    prev_hid = (old_c, old_h)
                 x = [state, prev_hid]
+                # Interventions are done within the commnet by setting info{} variables.
+                if t <= 1:
+                    info['h_probes'] = [None, self.h_probe]
+                    info['c_probes'] = [None, self.c_probe]
+                    info['goal_id'] = 0
                 action_out, value, prev_hid = self.policy_net(x, info)
 
                 if (t + 1) % self.args.detach_gap == 0:

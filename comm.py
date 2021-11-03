@@ -4,6 +4,10 @@ from torch import nn
 from nns.networks import ProtoNetwork
 from noise import OUNoise
 
+from utils.gen_xfactual import gen_counterfactual
+import numpy as np
+
+
 class CommNetMLP(nn.Module):
     """
     MLP based CommNet. Uses communication vector to communicate info
@@ -177,9 +181,23 @@ class CommNetMLP(nn.Module):
 
         return x, hidden_state, cell_state
 
+    def __intervention__(self, probes, inputs, goal_id=None):
+        cloned = inputs.clone()
+        for idx, h_probe in enumerate(probes):
+            if not h_probe:
+                continue
+            sub_comm = inputs[0, idx]
+            start_h = sub_comm.detach().numpy()
+            start_h = torch.unsqueeze(torch.Tensor(start_h), 0)
+            new_goal = np.zeros((1, 25))
+            if goal_id is None:
+                goal_id = 0
+            new_goal[0, goal_id] = 1
+            new_goal = torch.Tensor(new_goal)
+            x_fact_h = gen_counterfactual(start_h, h_probe, new_goal)
+            cloned[0, idx] = x_fact_h
 
     def forward(self, x, info={}):
-        # TODO: Update dimensions
         """Forward function for CommNet class, expects state, previous hidden
         and communication tensor.
         B: Batch Size: Normally 1 in case of episode
@@ -199,15 +217,6 @@ class CommNetMLP(nn.Module):
                 case of discrete, mean and std in case of continuous)
                 v: value head
         """
-
-        # if self.args.env_name == 'starcraft':
-        #     maxi = x.max(dim=-2)[0]
-        #     x = self.state_encoder(x)
-        #     x = x.sum(dim=-2)
-        #     x = torch.cat([x, maxi], dim=-1)
-        #     x = self.tanh(x)
-
-
         x, hidden_state, cell_state = self.forward_state_encoder(x)
 
         batch_size = x.size()[0]
@@ -225,19 +234,16 @@ class CommNetMLP(nn.Module):
 
         agent_mask_transpose = agent_mask.transpose(1, 2)
 
-        for i in range(self.comm_passes):
-            # TODO: this will change, basically a prototype layer should be taking in the hidden state.
-            #  and then return comm.
-            # print(f"doing forward hidden state is {hidden_state.size()}")
+        if 'c_probes' in info.keys():
+            cell_state = torch.unsqueeze(cell_state, 0)
+            self.__intervention__(info.get('c_probes'), cell_state, info.get('goal_id'))
+            cell_state = torch.squeeze(cell_state, 0)
 
-            # TODO: Currently writing the prototype based method assuming batch size is 1.
-            #  Need to figure out what will happen when batch size isn't 1.
+        for i in range(self.comm_passes):
             if self.args.use_proto:
                 raw_outputs = self.proto_layer(hidden_state)
-
                 # TODO: for now we set explore to True and exploration_noise is also OU and device is also 'cpu'
-                #  During evalutation, set explore to False.
-
+                #  During evaluation, set explore to False.
                 if self.train_mode:
                     comm = self.proto_layer.step(raw_outputs, True, self.exploration_noise, 'cpu')
                 else:
@@ -248,8 +254,8 @@ class CommNetMLP(nn.Module):
 
             comm = comm.view(batch_size, n, self.args.comm_dim) if self.args.recurrent else comm
 
-            # Get the next communication vector based on next hidden state
-            # comm = comm.unsqueeze(-2).expand(-1, n, n, self.hid_size)
+            if 'h_probes' in info.keys():
+                self.__intervention__(info.get('h_probes'), comm, info.get('goal_id'))
 
             # changed for accomadating prototype based approach as well.
             comm = comm.unsqueeze(-2).expand(-1, n, n, self.args.comm_dim)
@@ -281,16 +287,11 @@ class CommNetMLP(nn.Module):
             if self.args.recurrent:
                 # skip connection - combine comm. matrix and encoded input for all agents
                 inp = x + c
-
                 # inp = inp.view(batch_size * n, self.hid_size)
-
                 inp = inp.view(batch_size * n, self.args.comm_dim)
-
                 output = self.f_module(inp, (hidden_state, cell_state))
-
                 hidden_state = output[0]
                 cell_state = output[1]
-
             else: # MLP|RNN
                 # Get next hidden state from f node
                 # and Add skip connection from start and sum them

@@ -65,7 +65,7 @@ class GymWrapper(object):
 
     def display(self):
         self.env.render()
-        time.sleep(0.5)
+        time.sleep(0.1)
 
     def end_display(self):
         self.env.exit_render()
