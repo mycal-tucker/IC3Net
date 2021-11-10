@@ -20,27 +20,27 @@ class Evaluator:
         self.tracker = GameTracker(max_size=5000) if args.use_tracker else None
 
         # Lots of intervention-based variables for overwriting cell state, etc.
-        tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'tracker.pkl')
-        old_tracker = GameTracker.from_file(tracker_path)
+        self.intervene = False
+        self.num_agents = 2  # FIXME
+        self.intervene_ids = [1]
+        try:
+            tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'tracker.pkl')
+            old_tracker = GameTracker.from_file(tracker_path)
+            c_dim = old_tracker.data[0][2][0].detach().numpy().shape[1]
+            num_locations = old_tracker.data[0][0].shape[0]
+            print("Num locations", num_locations)
+            self.c_probes = [Probe(c_dim, num_locations, num_layers=3) for _ in range(self.num_agents)]
+            [c_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'c_probe_' +
+                                        str(i) + '.pth'))) for i, c_probe in enumerate(self.c_probes)]
+            [c_probe.eval() for c_probe in self.c_probes]
 
-        self.intervene_id = 1
-        c_probe_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'c_probe_' +
-                                    str(self.intervene_id) + '.pth')
-        h_probe_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'h_probe_' +
-                                    str(self.intervene_id) + '.pth')
-        c_dim = old_tracker.data[0][2][0].detach().numpy().shape[1]
-        num_locations = old_tracker.data[0][0].shape[0]
-        self.c_probe = Probe(c_dim, num_locations, num_layers=3)
-        self.c_probe.load_state_dict(torch.load(c_probe_path))
-        self.c_probe.eval()
-        self.h_probe = Probe(c_dim, num_locations, num_layers=3)
-        self.h_probe.load_state_dict(torch.load(h_probe_path))
-        self.h_probe.eval()
-
-        new_goal = np.zeros((1, num_locations))
-        goal_id = 0
-        new_goal[0, goal_id] = 1
-        self.new_goal = torch.Tensor(new_goal)
+            self.h_probes = [Probe(c_dim, num_locations, num_layers=3) for _ in range(self.num_agents)]
+            [h_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'h_probe_' +
+                                        str(i) + '.pth'))) for i, h_probe in enumerate(self.h_probes)]
+            [h_probe.eval() for h_probe in self.h_probes]
+        except FileNotFoundError:
+            print("No old tracker there, so not doing interventions.")
+            self.intervene = False
 
     def run_episode(self, epoch=1):
         all_comms = []
@@ -68,10 +68,24 @@ class Evaluator:
                     prev_hid = self.policy_net.init_hidden(batch_size=state.shape[0])
                 x = [state, prev_hid]
                 # Interventions are done within the commnet by setting info{} variables.
-                if t <= 1:
-                    info['h_probes'] = [None, self.h_probe]
-                    info['c_probes'] = [None, self.c_probe]
-                    info['goal_id'] = 0
+                if t <= 20 and self.intervene:
+                    true_state = self.env.get_true_state()
+                    num_locations = 25
+                    prey_idx = num_locations + 1
+                    prey_row_idx = np.where(true_state[:, prey_idx] == 1)
+                    prey_row = true_state[prey_row_idx]
+                    # Here, have the row where the prey is, so pull out location.
+                    prey_loc = prey_row[0, :num_locations]
+                    loc_id = np.argmax(prey_loc)
+                    # print("Prey loc id", loc_id)
+
+                    info['h_probes'] = [None for _ in range(self.num_agents)]
+                    info['c_probes'] = [None for _ in range(self.num_agents)]
+                    for intervene_id in self.intervene_ids:
+                        info['h_probes'][intervene_id] = self.h_probes[intervene_id]
+                        info['c_probes'][intervene_id] = self.c_probes[intervene_id]
+                    info['goal_id'] = loc_id
+                    # info['goal_id'] = 0
                 action_out, value, prev_hid = self.policy_net(x, info)
 
                 if (t + 1) % self.args.detach_gap == 0:

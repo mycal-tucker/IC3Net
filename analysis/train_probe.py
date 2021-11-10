@@ -12,18 +12,21 @@ from utils.game_tracker import GameTracker
 from utils.util_fns import *
 
 
-# Proof of concept of training a probe.
-# TODO: break into reusable chunks eventually so we can train a probe inline with other scripts.
+def get_prey_location(state, num_locations):
+    prey_idx = num_locations + 1
+    prey_row_idx = np.where(state[:, prey_idx] == 1)
+    prey_row = state[prey_row_idx]
+    # Here, have the row where the prey is, so pull out location.
+    prey_loc = prey_row[0, :num_locations]
+    return prey_loc
 
 
-def train_probe(from_cell_state=True):
+def train_probe(agent_id, from_cell_state=True):
     # 1) Load a tracker, which has already been populated by running eval.
     tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'tracker.pkl')
     tracker = GameTracker.from_file(tracker_path)
     print("tracker len", len(tracker.data))
 
-    # Which agent are you going to use for the hidden states and observations.
-    agent_id = 1  # We want the prey in this case
     hidden_state_idx = 0 if from_cell_state else 1
     hidden_dim = tracker.data[0][2][hidden_state_idx].detach().numpy().shape[1]
 
@@ -31,21 +34,20 @@ def train_probe(from_cell_state=True):
 
     y_data = []
     timesteps = []
-    num_locations = tracker.data[0][0].shape[0]
-    for state, _, _, time_idx in tracker.data:
-        # Find location of the prey.
-        prey_idx = num_locations + 1
-        prey_row_idx = np.where(state[:, prey_idx] == 1)
-        prey_row = state[prey_row_idx]
-        # Here, have the row where the prey is, so pull out location.
-        prey_loc = prey_row[0, :num_locations]
-        y_data.append(prey_loc)
+    for state, obs, _, time_idx in tracker.data:
+        if env_name == "spurious":
+            num_locations = tracker.data[0][0].shape[0]
+            y_dim = num_locations
+            data_point = get_prey_location(state, num_locations)
+        elif env_name == "traffic":
+            pass  # TODO
+        y_data.append(data_point)
         timesteps.append(time_idx)
     y_data = np.array(y_data)
 
     # 2) Initialize a net to predict prey location.
     num_layers = 3 if from_cell_state else 3
-    probe_model = Probe(hidden_dim, num_locations, num_layers=num_layers)
+    probe_model = Probe(hidden_dim, y_dim, num_layers=num_layers)
 
     # 3) Put all the data in a dataloader
     frac = 0.75
@@ -54,8 +56,8 @@ def train_probe(from_cell_state=True):
                               torch.Tensor(timesteps[:train_len]))
     test_set = TensorDataset(torch.Tensor(hidden_data[train_len:]), torch.Tensor(y_data[train_len:]),
                              torch.Tensor(timesteps[train_len:]))
-    train_dataloader = DataLoader(train_set, batch_size=32, shuffle=True)
-    test_dataloader = DataLoader(test_set, batch_size=32, shuffle=False)
+    train_dataloader = DataLoader(train_set, batch_size=16, shuffle=True)
+    test_dataloader = DataLoader(test_set, batch_size=16, shuffle=False)
 
     path_name = 'c_probe' if from_cell_state else 'h_probe'
     path_name += '_' + str(agent_id) + '.pth'
@@ -64,7 +66,13 @@ def train_probe(from_cell_state=True):
         # 4) Do the training.
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.SGD(probe_model.parameters(), lr=0.001, momentum=0.9)
-        for epoch in range(100):  # Was 100
+        min_eval_loss = None
+        max_patience = 10
+        curr_patience = 0
+        for epoch in range(1000):  # Was 100
+            if curr_patience >= max_patience:
+                print("Breaking because of patience with eval loss", min_eval_loss)
+                break
             running_loss = 0.0
             for i, data in enumerate(train_dataloader):
                 inputs, labels, _ = data
@@ -73,9 +81,22 @@ def train_probe(from_cell_state=True):
                 loss = criterion(outputs, labels)
                 loss.backward()
                 optimizer.step()
-
                 running_loss += loss
-            print("Epoch loss", running_loss)
+            # Calculate eval loss too for early stopping
+            probe_model.eval()
+            with torch.no_grad():
+                running_loss = 0.0
+                for data in test_dataloader:
+                    inputs, labels, _ = data
+                    outputs = probe_model(inputs)
+                    loss = criterion(outputs, labels)
+                    running_loss += loss
+                print("Eval loss", running_loss)
+                if min_eval_loss is None or running_loss < min_eval_loss:
+                    min_eval_loss = running_loss
+                    curr_patience = 0
+            curr_patience += 1
+            probe_model.train()
         torch.save(probe_model.state_dict(), probe_path)
     probe_model.load_state_dict(torch.load(probe_path))
     # 5) Do some eval
@@ -138,8 +159,11 @@ def train_probe(from_cell_state=True):
 
 
 if __name__ == '__main__':
+    env_name = "traffic"  # FIXME: from args
     parser = get_args()
     init_args_for_env(parser)
     args = parser.parse_args()
     args.train = True  # Set by hand for now.
-    train_probe(True)
+    for agent_id in [0, 1]:
+        for do_c in [True, False]:
+            train_probe(agent_id, do_c)

@@ -161,8 +161,20 @@ class SpuriousPredatorPreyEnv(gym.Env):
         idx = np.random.choice(np.prod(self.dims), (self.npredator + self.nprey), replace=False)
         return np.vstack(np.unravel_index(idx, self.dims)).T
 
+    def __corrupt_state__(self, true_state):
+        copied_state = np.copy(true_state)
+        noisy_prey_locs = [np.random.randint(0, self.dims[0], self.prey_loc.size)]
+        # Now overwrite the location in true state of the prey
+        for p, noisy_p in zip(self.prey_loc, noisy_prey_locs):
+            # Remove old prey location info
+            copied_state[self.__idxs_to_global__(p[0] + self.vision, p[1] + self.vision), self.PREY_CLASS] = 0
+            copied_state[self.__idxs_to_global__(noisy_p[0] + self.vision, noisy_p[1] + self.vision), self.PREY_CLASS] = 1
+        return copied_state
+
     def _get_obs(self):
+        do_corrupt = False
         bool_base_grid = self.get_true_state()
+        corrupted_base_grid = self.__corrupt_state__(bool_base_grid)
         # Agents only observe parts of the state.
         obs = []
         for p in self.predator_loc:
@@ -181,7 +193,10 @@ class SpuriousPredatorPreyEnv(gym.Env):
                 for visible_x in range(p[0] - self.vision, p[0] + self.vision + 1):
                     row_obs = []
                     for visible_y in range(p[1] - self.vision, p[1] + self.vision + 1):
-                        single_obs = bool_base_grid[self.__idxs_to_global__(visible_x, visible_y)]
+                        if not do_corrupt:
+                            single_obs = bool_base_grid[self.__idxs_to_global__(visible_x, visible_y)]
+                        else:
+                            single_obs = corrupted_base_grid[self.__idxs_to_global__(visible_x, visible_y)]
                         if self.timestep > 0:
                             single_obs = np.zeros_like(single_obs)
                         row_obs.append(single_obs)
@@ -211,8 +226,9 @@ class SpuriousPredatorPreyEnv(gym.Env):
             else:
                 raise NotImplementedError
 
-        if self.reached_prey[idx] == 1:
-            return
+        # The prey is an absorbing state, so predators don't keep moving.
+        # if self.reached_prey[idx] == 1:
+        #     return
 
         # STAY action
         if act == 5:
@@ -261,10 +277,10 @@ class SpuriousPredatorPreyEnv(gym.Env):
         else:
             raise RuntimeError("Incorrect mode, Available modes: [cooperative|competitive|mixed]")
 
-        self.reached_prey[on_prey] = 1
+        # self.reached_prey[on_prey] = 1
 
-        if np.all(self.reached_prey == 1) and self.mode == 'mixed':
-            self.episode_over = True
+        # if np.all(self.reached_prey == 1) and self.mode == 'mixed':
+        #     self.episode_over = True
 
         # Prey reward
         if nb_predator_on_prey == 0:
@@ -279,7 +295,6 @@ class SpuriousPredatorPreyEnv(gym.Env):
                 self.stat['success'] = 1
             else:
                 self.stat['success'] = 0
-
         return reward
 
     def reward_terminal(self):

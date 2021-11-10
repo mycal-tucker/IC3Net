@@ -12,18 +12,30 @@ from utils.util_fns import *
 def gen_counterfactual(z, probe, s_prime):
     z_prime = z
     z_prime.requires_grad = True
-    optimizer = optim.SGD([z_prime], lr=0.001, momentum=0.9)
+    optimizer = optim.SGD([z_prime], lr=0.0001, momentum=0.9)
+    # optimizer = optim.Adam([z_prime], lr=0.001)
     criterion = nn.CrossEntropyLoss()
     num_steps = 0
-    min_loss = 0.05
+    stopping_loss = 0.05  # Was 0.05
     loss = 100
-    while loss > min_loss:
+    max_patience = 10
+    curr_patience = 0
+    min_loss = loss
+    while loss > stopping_loss:
         optimizer.zero_grad()
         outputs = probe(torch.Tensor(z_prime))
         loss = criterion(outputs, s_prime)
         loss.backward()
         optimizer.step()
         num_steps += 1
+        curr_patience += 1
+        if loss < min_loss - 0.01:
+            min_loss = loss
+            curr_patience = 0
+        if curr_patience > max_patience:
+            # print("Breaking because of patience with loss", loss)
+            break
+    # print("Num steps", num_steps, "\tloss", loss)
     return z_prime
 
 

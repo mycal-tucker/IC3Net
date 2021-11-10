@@ -100,24 +100,22 @@ def run_eval(_):
 
     st_time = time.time()
 
-    # TODO: Run for multiple episodes.
-    for i in range(20):
+    all_stats = []
+    for i in range(100):
         ep, stat, all_comms = evaluator.run_episode()
-        print(stat)
+        print("Trial", i, stat)
+        all_stats.append(stat)
     if args.use_tracker:
         tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), "tracker.pkl")
         evaluator.tracker.to_file(tracker_path)
 
     total_episode_time = time.time() - st_time
-
-    print("stat is: ", stat)
-    print("avg comm ", stat['comm_action'] / stat['num_steps'])
-    print("time taken per step ", total_episode_time/stat['num_steps'])
-
-    all_comms = np.array(all_comms)
-    num_agents = len(all_comms[0])
-    for i in range(num_agents):
-        print(f"for agent{i} communication is: ", all_comms[:, i])
+    average_stat = {}
+    for key in all_stats[0].keys():
+        average_stat[key] = np.mean([stat.get(key) for stat in all_stats])
+    print("average stats is: ", average_stat)
+    print("avg comm ", average_stat['comm_action'] / average_stat['num_steps'])
+    print("time taken per step ", total_episode_time/average_stat['num_steps'])
 
 
 if __name__ == '__main__':

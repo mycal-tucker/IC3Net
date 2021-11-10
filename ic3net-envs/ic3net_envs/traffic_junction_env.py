@@ -46,6 +46,7 @@ class TrafficJunctionEnv(gym.Env):
 
         self.episode_over = False
         self.has_failed = 0
+        self.timestep = None
 
     def init_curses(self):
         self.stdscr = curses.initscr()
@@ -75,7 +76,6 @@ class TrafficJunctionEnv(gym.Env):
                          help="Difficulty level, easy|medium|hard")
         env.add_argument('--vocab_type', type=str, default='bool',
                          help="Type of location vector to use, bool|scalar")
-
 
     def multi_agent_init(self, args):
         # General variables defining the environment : CONFIG
@@ -171,7 +171,7 @@ class TrafficJunctionEnv(gym.Env):
         self.alive_mask = np.zeros(self.ncar)
         self.wait = np.zeros(self.ncar)
         self.cars_in_sys = 0
-
+        self.timestep = 0
         # Chosen path for each car:
         self.chosen_path = [0] * self.ncar
         # when dead => no route, must be masked by trainer.
@@ -249,6 +249,7 @@ class TrafficJunctionEnv(gym.Env):
         self.stat['success'] = 1 - self.has_failed
         self.stat['add_rate'] = self.add_rate
 
+        self.timestep += 1
         return obs, reward, self.episode_over, debug
 
     def render(self, mode='human', close=False):
@@ -302,7 +303,7 @@ class TrafficJunctionEnv(gym.Env):
         w, h = self.dims
 
         # Mark the roads
-        roads = get_road_blocks(w,h, self.difficulty)
+        roads = get_road_blocks(w, h, self.difficulty)
         for road in roads:
             self.grid[road] = self.ROAD_CLASS
         if self.vocab_type == 'bool':

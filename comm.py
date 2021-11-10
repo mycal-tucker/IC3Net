@@ -189,7 +189,7 @@ class CommNetMLP(nn.Module):
             sub_comm = inputs[0, idx]
             start_h = sub_comm.detach().numpy()
             start_h = torch.unsqueeze(torch.Tensor(start_h), 0)
-            new_goal = np.zeros((1, 25))
+            new_goal = np.zeros((1, h_probe.out_dim))
             if goal_id is None:
                 goal_id = 0
             new_goal[0, goal_id] = 1
