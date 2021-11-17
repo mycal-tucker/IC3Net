@@ -181,7 +181,7 @@ class CommNetMLP(nn.Module):
 
         return x, hidden_state, cell_state
 
-    def __intervention__(self, probes, inputs, goal_id=None):
+    def __intervention__(self, probes, inputs, s_primes):
         cloned = inputs.clone()
         for idx, h_probe in enumerate(probes):
             if not h_probe:
@@ -190,8 +190,7 @@ class CommNetMLP(nn.Module):
             start_h = sub_comm.detach().numpy()
             start_h = torch.unsqueeze(torch.Tensor(start_h), 0)
             new_goal = np.zeros((1, h_probe.out_dim))
-            if goal_id is None:
-                goal_id = 0
+            goal_id = s_primes[idx]
             new_goal[0, goal_id] = 1
             new_goal = torch.Tensor(new_goal)
             x_fact_h = gen_counterfactual(start_h, h_probe, new_goal)
@@ -234,9 +233,12 @@ class CommNetMLP(nn.Module):
 
         agent_mask_transpose = agent_mask.transpose(1, 2)
 
-        if 'c_probes' in info.keys():
+        intervene_before = False
+        intervene_after = True
+
+        if intervene_before and 'c_probes' in info.keys():
             cell_state = torch.unsqueeze(cell_state, 0)
-            self.__intervention__(info.get('c_probes'), cell_state, info.get('goal_id'))
+            self.__intervention__(info.get('c_probes'), cell_state, info.get('s_primes'))
             cell_state = torch.squeeze(cell_state, 0)
 
         for i in range(self.comm_passes):
@@ -254,8 +256,8 @@ class CommNetMLP(nn.Module):
 
             comm = comm.view(batch_size, n, self.args.comm_dim) if self.args.recurrent else comm
 
-            if 'h_probes' in info.keys():
-                self.__intervention__(info.get('h_probes'), comm, info.get('goal_id'))
+            if intervene_before and 'h_probes' in info.keys():
+                self.__intervention__(info.get('h_probes'), comm, info.get('s_primes'))
 
             # changed for accomadating prototype based approach as well.
             comm = comm.unsqueeze(-2).expand(-1, n, n, self.args.comm_dim)
@@ -297,6 +299,17 @@ class CommNetMLP(nn.Module):
                 # and Add skip connection from start and sum them
                 hidden_state = sum([x, self.f_modules[i](hidden_state), c])
                 hidden_state = self.tanh(hidden_state)
+
+        # Post-comm interventions?
+        if intervene_after:
+            if 'c_probes' in info.keys():
+                cell_state = torch.unsqueeze(cell_state, 0)
+                self.__intervention__(info.get('c_probes'), cell_state, info.get('s_primes'))
+                cell_state = torch.squeeze(cell_state, 0)
+            if 'h_probes' in info.keys():
+                hidden_state = torch.unsqueeze(hidden_state, 0)
+                self.__intervention__(info.get('h_probes'), hidden_state, info.get('s_primes'))
+                hidden_state = torch.squeeze(hidden_state, 0)
 
         # v = torch.stack([self.value_head(hidden_state[:, i, :]) for i in range(n)])
         # v = v.view(hidden_state.size(0), n, -1)

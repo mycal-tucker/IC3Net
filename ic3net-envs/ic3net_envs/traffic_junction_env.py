@@ -200,8 +200,15 @@ class TrafficJunctionEnv(gym.Env):
             self.epoch_last_update = epoch
 
         # Observation will be ncar * vision * vision ndarray
-        obs = self._get_obs()
+        obs = self.get_obs()
         return obs
+
+    def get_true_state(self):
+        bool_base_grid = self.empty_bool_base_grid.copy()
+        # Mark cars' location in Bool grid
+        for i, p in enumerate(self.car_loc):
+            bool_base_grid[p[0] + self.vision, p[1] + self.vision, self.CAR_CLASS] += 1
+        return bool_base_grid
 
     def step(self, action):
         """
@@ -237,7 +244,7 @@ class TrafficJunctionEnv(gym.Env):
 
         self._add_cars()
 
-        obs = self._get_obs()
+        obs = self.get_obs()
         reward = self._get_reward()
 
         debug = {'car_loc':self.car_loc,
@@ -253,7 +260,6 @@ class TrafficJunctionEnv(gym.Env):
         return obs, reward, self.episode_over, debug
 
     def render(self, mode='human', close=False):
-
         grid = self.grid.copy().astype(object)
         # grid = np.zeros(self.dims[0]*self.dims[1], dtypeobject).reshape(self.dims)
         grid[grid != self.OUTSIDE_CLASS] = '_'
@@ -319,19 +325,11 @@ class TrafficJunctionEnv(gym.Env):
 
         self.empty_bool_base_grid = self._onehot_initialization(self.pad_grid)
 
-    def _get_obs(self):
+    def get_obs(self):
         h, w = self.dims
-        self.bool_base_grid = self.empty_bool_base_grid.copy()
+        self.bool_base_grid = self.get_true_state()
 
-        # Mark cars' location in Bool grid
-        for i, p in enumerate(self.car_loc):
-            self.bool_base_grid[p[0] + self.vision, p[1] + self.vision, self.CAR_CLASS] += 1
-
-
-        # remove the outside class.
-        if self.vocab_type == 'scalar':
-            self.bool_base_grid = self.bool_base_grid[:,:,1:]
-
+        corrupt = True
 
         obs = []
         for i, p in enumerate(self.car_loc):
@@ -348,6 +346,15 @@ class TrafficJunctionEnv(gym.Env):
             slice_y = slice(p[0], p[0] + (2 * self.vision) + 1)
             slice_x = slice(p[1], p[1] + (2 * self.vision) + 1)
             v_sq = self.bool_base_grid[slice_y, slice_x]
+
+            if corrupt:
+                for j in range(2 * self.vision + 1):
+                    for k in range(2 * self.vision + 1):
+                        if j == self.vision and k == self.vision:
+                            continue
+                        if v_sq[j, k, self.CAR_CLASS] != 0:
+                            # Can see a car, but hide it.
+                            v_sq[j, k, self.CAR_CLASS] = 0
 
             # when dead, all obs are 0. But should be masked by trainer.
             if self.alive_mask[i] == 0:
@@ -570,7 +577,7 @@ class TrafficJunctionEnv(gym.Env):
 
             elif curr > len(self.chosen_path[idx]):
                 print(curr)
-                raise RuntimeError("Out of boud car path")
+                raise RuntimeError("Out of bound car path")
 
             prev = self.chosen_path[idx][prev]
             curr = self.chosen_path[idx][curr]

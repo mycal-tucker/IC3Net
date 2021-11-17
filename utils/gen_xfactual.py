@@ -18,7 +18,7 @@ def gen_counterfactual(z, probe, s_prime):
     num_steps = 0
     stopping_loss = 0.05  # Was 0.05
     loss = 100
-    max_patience = 10
+    max_patience = 100
     curr_patience = 0
     min_loss = loss
     while loss > stopping_loss:

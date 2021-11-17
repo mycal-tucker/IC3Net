@@ -113,5 +113,8 @@ class GymWrapper(object):
     def get_true_state(self):
         return self.env.get_true_state()
 
+    def get_obs(self):
+        return self.env.get_obs()
+
     def get_timestep(self):
         return self.env.timestep

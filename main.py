@@ -3,7 +3,7 @@ import signal
 import argparse
 from tensorboardX import SummaryWriter
 # import visdom
-import data
+from utils import data
 from nns.models import *
 from comm import CommNetMLP
 from utils.util_fns import *

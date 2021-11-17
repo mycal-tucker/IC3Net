@@ -4,8 +4,8 @@ from inspect import getargspec
 from action_utils import *
 from nns.probe import Probe
 from utils.game_tracker import GameTracker
-from utils.gen_xfactual import gen_counterfactual
 from utils.util_fns import *
+from train_probe import is_car_in_front
 
 Transition = namedtuple('Transition', ('state', 'action', 'action_out', 'value', 'episode_mask', 'episode_mini_mask', 'next_state',
                                        'reward', 'misc'))
@@ -20,24 +20,25 @@ class Evaluator:
         self.tracker = GameTracker(max_size=5000) if args.use_tracker else None
 
         # Lots of intervention-based variables for overwriting cell state, etc.
-        self.intervene = False
-        self.num_agents = 2  # FIXME
-        self.intervene_ids = [1]
+        self.intervene = True
+        self.num_agents = args.nagents
+        self.intervene_ids = [i for i in range(self.num_agents)]
         try:
-            tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'tracker.pkl')
-            old_tracker = GameTracker.from_file(tracker_path)
-            c_dim = old_tracker.data[0][2][0].detach().numpy().shape[1]
-            num_locations = old_tracker.data[0][0].shape[0]
-            print("Num locations", num_locations)
-            self.c_probes = [Probe(c_dim, num_locations, num_layers=3) for _ in range(self.num_agents)]
-            [c_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'c_probe_' +
-                                        str(i) + '.pth'))) for i, c_probe in enumerate(self.c_probes)]
-            [c_probe.eval() for c_probe in self.c_probes]
+            if self.intervene:
+                tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'tracker.pkl')
+                old_tracker = GameTracker.from_file(tracker_path)
+                c_dim = old_tracker.data[0][2][0].detach().numpy().shape[1]
+                # probe_pred_dim = 25
+                probe_pred_dim = 2
+                self.c_probes = [Probe(c_dim, probe_pred_dim, num_layers=3) for _ in range(self.num_agents)]
+                [c_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'c_probe_' +
+                                            str(i) + '.pth'))) for i, c_probe in enumerate(self.c_probes)]
+                [c_probe.eval() for c_probe in self.c_probes]
 
-            self.h_probes = [Probe(c_dim, num_locations, num_layers=3) for _ in range(self.num_agents)]
-            [h_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'h_probe_' +
-                                        str(i) + '.pth'))) for i, h_probe in enumerate(self.h_probes)]
-            [h_probe.eval() for h_probe in self.h_probes]
+                self.h_probes = [Probe(c_dim, probe_pred_dim, num_layers=3) for _ in range(self.num_agents)]
+                [h_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'h_probe_' +
+                                            str(i) + '.pth'))) for i, h_probe in enumerate(self.h_probes)]
+                [h_probe.eval() for h_probe in self.h_probes]
         except FileNotFoundError:
             print("No old tracker there, so not doing interventions.")
             self.intervene = False
@@ -68,24 +69,25 @@ class Evaluator:
                     prev_hid = self.policy_net.init_hidden(batch_size=state.shape[0])
                 x = [state, prev_hid]
                 # Interventions are done within the commnet by setting info{} variables.
-                if t <= 20 and self.intervene:
+                if 3 <= t <= 20 and self.intervene:
                     true_state = self.env.get_true_state()
-                    num_locations = 25
-                    prey_idx = num_locations + 1
-                    prey_row_idx = np.where(true_state[:, prey_idx] == 1)
-                    prey_row = true_state[prey_row_idx]
-                    # Here, have the row where the prey is, so pull out location.
-                    prey_loc = prey_row[0, :num_locations]
-                    loc_id = np.argmax(prey_loc)
-                    # print("Prey loc id", loc_id)
+                    obs = self.env.get_obs()
+
+                    # num_locations = 25
+                    # prey_idx = num_locations + 1
+                    # prey_row_idx = np.where(true_state[:, prey_idx] == 1)
+                    # prey_row = true_state[prey_row_idx]
+                    # # Here, have the row where the prey is, so pull out location.
+                    # prey_loc = prey_row[0, :num_locations]
+                    # inserted_info = np.argmax(prey_loc)
 
                     info['h_probes'] = [None for _ in range(self.num_agents)]
                     info['c_probes'] = [None for _ in range(self.num_agents)]
+                    info['s_primes'] = [None for _ in range(self.num_agents)]
                     for intervene_id in self.intervene_ids:
                         info['h_probes'][intervene_id] = self.h_probes[intervene_id]
                         info['c_probes'][intervene_id] = self.c_probes[intervene_id]
-                    info['goal_id'] = loc_id
-                    # info['goal_id'] = 0
+                        info['s_primes'][intervene_id] = is_car_in_front(true_state, np.hstack([np.reshape(elt, (1, -1)) for elt in obs[intervene_id]])[0], self.env.env)
                 action_out, value, prev_hid = self.policy_net(x, info)
 
                 if (t + 1) % self.args.detach_gap == 0:
@@ -103,7 +105,8 @@ class Evaluator:
 
             if self.tracker:
                 full_state = self.env.get_true_state()
-                self.tracker.add_data(full_state, next_state, prev_hid, self.env.get_timestep())
+                # Ignore gating action
+                self.tracker.add_data(full_state, next_state, prev_hid, self.env.get_timestep(), actual[0])
             # store comm_action in info for next step
             if self.args.hard_attn and self.args.commnet:
                 info['comm_action'] = action[-1] if not self.args.comm_action_one else np.ones(self.args.nagents, dtype=int)

@@ -1,7 +1,7 @@
 import os
 from curses import wrapper
 
-import data
+from utils import data
 from action_utils import parse_action_args
 from args import get_args
 from comm import CommNetMLP
@@ -68,7 +68,7 @@ def run_eval(_):
     parse_action_args(args)
 
     if args.seed == -1:
-        args.seed = np.random.randint(0,10000)
+        args.seed = np.random.randint(0, 10000)
     torch.manual_seed(args.seed)
 
     print(args)
