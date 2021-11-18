@@ -17,7 +17,7 @@ class Evaluator:
         self.policy_net = policy_net
         self.env = env
         self.display = args.display
-        self.tracker = GameTracker(max_size=5000) if args.use_tracker else None
+        self.tracker = GameTracker(max_size=10000) if args.use_tracker else None
 
         # Lots of intervention-based variables for overwriting cell state, etc.
         self.intervene = True
@@ -69,10 +69,10 @@ class Evaluator:
                     prev_hid = self.policy_net.init_hidden(batch_size=state.shape[0])
                 x = [state, prev_hid]
                 # Interventions are done within the commnet by setting info{} variables.
-                if 3 <= t <= 20 and self.intervene:
+                if t <= 20 and self.intervene:
                     true_state = self.env.get_true_state()
                     obs = self.env.get_obs()
-
+                    # For the predator-prey env.
                     # num_locations = 25
                     # prey_idx = num_locations + 1
                     # prey_row_idx = np.where(true_state[:, prey_idx] == 1)
@@ -87,7 +87,14 @@ class Evaluator:
                     for intervene_id in self.intervene_ids:
                         info['h_probes'][intervene_id] = self.h_probes[intervene_id]
                         info['c_probes'][intervene_id] = self.c_probes[intervene_id]
-                        info['s_primes'][intervene_id] = is_car_in_front(true_state, np.hstack([np.reshape(elt, (1, -1)) for elt in obs[intervene_id]])[0], self.env.env)
+                        # For the traffic env.
+                        s_prime, _ = is_car_in_front(true_state,
+                                                np.hstack([np.reshape(elt, (1, -1)) for elt in obs[intervene_id]])[0],
+                                                self.env.env)
+                        if s_prime != 1:  # Only intervene if we want to brake.
+                            continue
+                        info['s_primes'][intervene_id] = s_prime
+
                 action_out, value, prev_hid = self.policy_net(x, info)
 
                 if (t + 1) % self.args.detach_gap == 0:
@@ -101,10 +108,10 @@ class Evaluator:
 
             action = select_action(self.args, action_out)
             action, actual = translate_action(self.args, self.env, action)
+            full_state = self.env.get_true_state()
             next_state, reward, done, info = self.env.step(actual)
 
             if self.tracker:
-                full_state = self.env.get_true_state()
                 # Ignore gating action
                 self.tracker.add_data(full_state, next_state, prev_hid, self.env.get_timestep(), actual[0])
             # store comm_action in info for next step

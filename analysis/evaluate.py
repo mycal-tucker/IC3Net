@@ -101,7 +101,7 @@ def run_eval(_):
     st_time = time.time()
 
     all_stats = []
-    for i in range(100):
+    for i in range(1000):
         ep, stat, all_comms = evaluator.run_episode()
         print("Trial", i, stat)
         all_stats.append(stat)

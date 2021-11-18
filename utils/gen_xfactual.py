@@ -18,7 +18,7 @@ def gen_counterfactual(z, probe, s_prime):
     num_steps = 0
     stopping_loss = 0.05  # Was 0.05
     loss = 100
-    max_patience = 100
+    max_patience = 10000
     curr_patience = 0
     min_loss = loss
     while loss > stopping_loss:
@@ -35,7 +35,7 @@ def gen_counterfactual(z, probe, s_prime):
         if curr_patience > max_patience:
             # print("Breaking because of patience with loss", loss)
             break
-    # print("Num steps", num_steps, "\tloss", loss)
+    print("Num steps", num_steps, "\tloss", loss)
     return z_prime
 
 

@@ -47,6 +47,7 @@ class TrafficJunctionEnv(gym.Env):
         self.episode_over = False
         self.has_failed = 0
         self.timestep = None
+        self.corrupt = False
 
     def init_curses(self):
         self.stdscr = curses.initscr()
@@ -268,21 +269,21 @@ class TrafficJunctionEnv(gym.Env):
         for i, p in enumerate(self.car_loc):
             if self.car_last_act[i] == 0: # GAS
                 if grid[p[0]][p[1]] != 0:
-                    grid[p[0]][p[1]] = str(grid[p[0]][p[1]]).replace('_','') + '<>'
+                    grid[p[0]][p[1]] = str(grid[p[0]][p[1]]).replace('_','') + str(i)
                 else:
-                    grid[p[0]][p[1]] = '<>'
+                    grid[p[0]][p[1]] = str(i)
             else: # BRAKE
                 if grid[p[0]][p[1]] != 0:
-                    grid[p[0]][p[1]] = str(grid[p[0]][p[1]]).replace('_','') + '<b>'
+                    grid[p[0]][p[1]] = str(grid[p[0]][p[1]]).replace('_','') + 'b' + str(i)
                 else:
-                    grid[p[0]][p[1]] = '<b>'
+                    grid[p[0]][p[1]] = 'b' + str(i)
 
         for row_num, row in enumerate(grid):
             for idx, item in enumerate(row):
                 if row_num == idx == 0:
                     continue
                 if item != '_':
-                    if '<>' in item and len(item) > 3: #CRASH, one car accelerates
+                    if '<>' in item and len(item) > 2: #CRASH, one car accelerates
                         self.stdscr.addstr(row_num, idx * 4, item.replace('b','').center(3), curses.color_pair(2))
                     elif '<>' in item: #GAS
                         self.stdscr.addstr(row_num, idx * 4, item.center(3), curses.color_pair(1))
@@ -329,7 +330,6 @@ class TrafficJunctionEnv(gym.Env):
         h, w = self.dims
         self.bool_base_grid = self.get_true_state()
 
-        corrupt = True
 
         obs = []
         for i, p in enumerate(self.car_loc):
@@ -347,10 +347,12 @@ class TrafficJunctionEnv(gym.Env):
             slice_x = slice(p[1], p[1] + (2 * self.vision) + 1)
             v_sq = self.bool_base_grid[slice_y, slice_x]
 
-            if corrupt:
+            if self.corrupt: #and i == 0:
                 for j in range(2 * self.vision + 1):
                     for k in range(2 * self.vision + 1):
                         if j == self.vision and k == self.vision:
+                            continue
+                        if j == self.vision or k == self.vision:
                             continue
                         if v_sq[j, k, self.CAR_CLASS] != 0:
                             # Can see a car, but hide it.
@@ -555,6 +557,9 @@ class TrafficJunctionEnv(gym.Env):
 
         # action BRAKE i.e STAY
         if act == 1:
+            if idx >= 0:
+                # print("Brake")
+                pass
             self.car_last_act[idx] = 1
             return
 
