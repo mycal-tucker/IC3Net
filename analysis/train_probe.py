@@ -3,14 +3,14 @@ import os
 import matplotlib.pyplot as plt
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import WeightedRandomSampler
 from sklearn.metrics import confusion_matrix
 from torch.utils.data import TensorDataset, DataLoader
+
 from args import get_args
 from nns.probe import Probe
+from utils.data import init
 from utils.game_tracker import GameTracker
 from utils.util_fns import *
-from utils.data import init
 
 
 def get_prey_location(state, num_locations):
@@ -73,7 +73,7 @@ def car_stopped(act):
     return act[agent_id]
 
 
-def train_probe(agent_id, from_cell_state=True):
+def train_probe(from_cell_state=True):
     # 1) Load a tracker, which has already been populated by running eval.
     tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'tracker.pkl')
     tracker = GameTracker.from_file(tracker_path)
@@ -81,7 +81,7 @@ def train_probe(agent_id, from_cell_state=True):
 
     hidden_state_idx = 0 if from_cell_state else 1
     hidden_dim = tracker.data[0][2][hidden_state_idx].detach().numpy().shape[1]
-
+    # TODO: can't I combine all data from all agents because they're all the same?
     hidden_data = np.array([data_elt[2][hidden_state_idx][agent_id].detach().numpy() for data_elt in tracker.data])
 
     if env_name == 'traffic_junction':
@@ -102,9 +102,9 @@ def train_probe(agent_id, from_cell_state=True):
             is_car, is_alive = is_car_in_front(state, obs[0, agent_id], env.env)
             if not is_alive:
                 continue
-            # y_val = is_car
+            y_val = is_car
             did_stop = car_stopped(action)
-            y_val = did_stop
+            # y_val = did_stop
             data_point = np.zeros(2)
             data_point[y_val] = 1
         else:
@@ -123,24 +123,27 @@ def train_probe(agent_id, from_cell_state=True):
     # 3) Put all the data in a dataloader
     frac = 0.75
     train_len = int(len(hidden_data) * frac)
-    train_set = TensorDataset(torch.Tensor(hidden_data), torch.Tensor(y_data),
-                              torch.Tensor(timesteps))
-    test_set = TensorDataset(torch.Tensor(hidden_data[train_len:]), torch.Tensor(y_data[train_len:]),
-                             torch.Tensor(timesteps[train_len:]))
-    train_dataloader = DataLoader(train_set, batch_size=16, shuffle=True)
-    test_dataloader = DataLoader(test_set, batch_size=16, shuffle=False)
+    train_set = TensorDataset(torch.Tensor(hidden_data).to('cuda'), torch.Tensor(y_data).to('cuda'),
+                              torch.Tensor(timesteps).to('cuda'))
+    test_set = TensorDataset(torch.Tensor(hidden_data[train_len:]).to('cuda'), torch.Tensor(y_data[train_len:]).to('cuda'),
+                             torch.Tensor(timesteps[train_len:]).to('cuda'))
+    train_dataloader = DataLoader(train_set, batch_size=64, shuffle=True)
+    test_dataloader = DataLoader(test_set, batch_size=64, shuffle=False)
 
     path_name = 'c_probe' if from_cell_state else 'h_probe'
     path_name += '_' + str(agent_id) + '.pth'
     probe_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), path_name)
     if args.train:
         # 4) Do the training.
+        probe_model.to('cuda')
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.SGD(probe_model.parameters(), lr=0.001, momentum=0.9)
         min_eval_loss = None
         max_patience = 10
         curr_patience = 0
+        best_probe = Probe(hidden_dim, y_dim, num_layers=num_layers)
         for epoch in range(1000):  # Was 100
+            probe_model.train()
             if curr_patience >= max_patience:
                 print("Breaking because of patience with eval loss", min_eval_loss)
                 break
@@ -163,14 +166,16 @@ def train_probe(agent_id, from_cell_state=True):
                     loss = criterion(outputs, labels)
                     running_loss += loss
                 print("Eval loss", running_loss)
-                if min_eval_loss is None or running_loss < min_eval_loss:
+                if min_eval_loss is None or running_loss < min_eval_loss - 0.01:
                     min_eval_loss = running_loss
                     curr_patience = 0
+                    best_probe.load_state_dict(probe_model.state_dict())
             curr_patience += 1
             probe_model.train()
-        torch.save(probe_model.state_dict(), probe_path)
+        torch.save(best_probe.state_dict(), probe_path)
     probe_model.load_state_dict(torch.load(probe_path))
     # 5) Do some eval
+    probe_model.eval()
     correct = 0
     total = 0
     true_loc_hist = {}
@@ -185,8 +190,8 @@ def train_probe(agent_id, from_cell_state=True):
             labels = torch.argmax(labels, dim=1)
             outputs = probe_model(images)
             _, predicted = torch.max(outputs.data, 1)
-            all_true.extend(labels)
-            all_pred.extend(predicted)
+            all_true.extend(labels.cpu().detach())
+            all_pred.extend(predicted.cpu().detach())
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
             for label in labels:
@@ -221,7 +226,7 @@ def train_probe(agent_id, from_cell_state=True):
     plt.title(title)
     plt.xlabel("Time step into episode (max 20)")
     plt.ylabel("Probe accuracy")
-    plt.show()
+    # plt.show()
 
     # Plot a confusion matrix over prey locations.
     confusion = confusion_matrix(all_true, all_pred)
@@ -235,6 +240,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     env_name = args.env_name
     args.train = True  # Set by hand for now.
-    for agent_id in range(0, 5):
+    for agent_id in range(0, 2):
         for do_c in [True, False]:
-            train_probe(agent_id, do_c)
+            train_probe(do_c)

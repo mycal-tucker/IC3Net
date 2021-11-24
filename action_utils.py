@@ -25,7 +25,7 @@ def parse_action_args(args):
             raise RuntimeError("--nactions wrong format!")
 
 
-def select_action(args, action_out):
+def select_action(args, action_out, eval_mode=False, print_probs=False):
     # print(f"select action called")
     if args.continuous:
         action_mean, _, action_std = action_out
@@ -41,8 +41,12 @@ def select_action(args, action_out):
         #     tensor([[0.5344, 0.4656],
         #             [0.5307, 0.4693],
         #             [0.5179, 0.4821]], grad_fn= < ExpBackward >)]]
-
-        ret = torch.stack([torch.stack([torch.multinomial(x, 1).detach() for x in p]) for p in p_a])
+        if print_probs:
+            print("p_a", p_a)
+        if eval_mode:
+            ret = torch.stack([torch.stack([torch.argmax(x, 1).detach() for x in p]) for p in p_a])
+        else:
+            ret = torch.stack([torch.stack([torch.multinomial(x, 1).detach() for x in p]) for p in p_a])
         return ret
 
 def translate_action(args, env, action):

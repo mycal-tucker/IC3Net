@@ -12,11 +12,12 @@ from utils.util_fns import *
 def gen_counterfactual(z, probe, s_prime):
     z_prime = z
     z_prime.requires_grad = True
-    optimizer = optim.SGD([z_prime], lr=0.0001, momentum=0.9)
+    # optimizer = optim.SGD([z_prime], lr=0.0001, momentum=0.9)
+    optimizer = optim.SGD([z_prime], lr=0.001, momentum=0.9)
     # optimizer = optim.Adam([z_prime], lr=0.001)
     criterion = nn.CrossEntropyLoss()
     num_steps = 0
-    stopping_loss = 0.05  # Was 0.05
+    stopping_loss = .01  # Was 0.05
     loss = 100
     max_patience = 10000
     curr_patience = 0
