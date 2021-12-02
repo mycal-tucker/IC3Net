@@ -11,7 +11,7 @@ from nns.probe import Probe
 from utils.data import init
 from utils.game_tracker import GameTracker
 from utils.util_fns import *
-
+from info_analysis import get_info
 
 def get_prey_location(state, num_locations):
     prey_idx = num_locations + 1
@@ -115,6 +115,11 @@ def train_probe(from_cell_state=True):
     y_data = np.array(y_data)
     hidden_data = hidden_data[data_idxs]
     print("Average", np.mean(y_data, axis=0))
+
+    # Get Info between top half of H and Y
+    get_info(hidden_data[:, :int(0.5 * hidden_data.shape[1])], y_data, title='Top half H', do_plot=True)
+    get_info(hidden_data[:, int(0.5 * hidden_data.shape[1]):], y_data, title='Bottom half H', do_plot=True)
+    get_info(hidden_data, y_data, title='All H', do_plot=True)
 
     # 2) Initialize a net to predict prey location.
     num_layers = 3 if from_cell_state else 3
@@ -241,5 +246,5 @@ if __name__ == '__main__':
     env_name = args.env_name
     args.train = True  # Set by hand for now.
     for agent_id in range(0, 2):
-        for do_c in [True, False]:
+        for do_c in [False]:
             train_probe(do_c)
