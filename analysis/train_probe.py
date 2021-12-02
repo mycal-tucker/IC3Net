@@ -127,7 +127,7 @@ def train_probe(from_cell_state=True):
                               torch.Tensor(timesteps).to('cuda'))
     test_set = TensorDataset(torch.Tensor(hidden_data[train_len:]).to('cuda'), torch.Tensor(y_data[train_len:]).to('cuda'),
                              torch.Tensor(timesteps[train_len:]).to('cuda'))
-    train_dataloader = DataLoader(train_set, batch_size=64, shuffle=True)
+    train_dataloader = DataLoader(train_set, batch_size=128, shuffle=True)
     test_dataloader = DataLoader(test_set, batch_size=64, shuffle=False)
 
     path_name = 'c_probe' if from_cell_state else 'h_probe'
