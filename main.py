@@ -327,6 +327,8 @@ def run(num_epochs):
             print('Add-Rate: {:.2f}'.format(stat['add_rate']))
         if 'success' in stat.keys():
             print('Success: {:.2f}'.format(stat['success']))
+        if 'collisions' in stat.keys():
+            print('Collisions: {:.2f}'.format(stat['collisions']))
         if 'steps_taken' in stat.keys():
             print('Steps-taken: {:.2f}'.format(stat['steps_taken']))
         if 'comm_action' in stat.keys():

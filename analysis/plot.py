@@ -18,7 +18,7 @@ args = parser.parse_args()
 history_path = os.path.join(args.save, args.env_name, args.exp_name)  # args.seed, "models")
 
 def plot(hist_path, num_agents):
-    keys = ["entropy", "num_episodes", "num_steps", "step_taken", "success", "value_loss"]
+    keys = ["entropy", "num_episodes", "num_steps", "step_taken", "success", "value_loss", 'collisions']
     for i in range(num_agents):
         keys.append(f"agent{i}_comm_action")
         keys.append(f"agent{i}_reward")

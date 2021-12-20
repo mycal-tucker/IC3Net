@@ -17,11 +17,13 @@ def gen_counterfactual(z, probe, s_prime):
     # optimizer = optim.Adam([z_prime], lr=0.001)
     criterion = nn.CrossEntropyLoss()
     num_steps = 0
-    stopping_loss = .01  # Was 0.05
+    # stopping_loss = .01  # Was 0.05
+    stopping_loss = .5  # Was 0.05
     loss = 100
     max_patience = 10000
     curr_patience = 0
     min_loss = loss
+    probe.eval()
     while loss > stopping_loss:
         optimizer.zero_grad()
         outputs = probe(torch.Tensor(z_prime))

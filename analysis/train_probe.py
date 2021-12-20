@@ -13,6 +13,7 @@ from utils.game_tracker import GameTracker
 from utils.util_fns import *
 from info_analysis import get_info
 
+
 def get_prey_location(state, num_locations):
     prey_idx = num_locations + 1
     prey_row_idx = np.where(state[:, prey_idx] == 1)
@@ -97,6 +98,7 @@ def train_probe(from_cell_state=True):
             num_locations = tracker.data[0][0].shape[0]
             y_dim = num_locations
             data_point = get_prey_location(state, num_locations)
+            # print("Prey location", data_point)
         elif env_name == "traffic_junction":
             y_dim = 2  # Car in front of current agent or not.
             is_car, is_alive = is_car_in_front(state, obs[0, agent_id], env.env)
@@ -117,9 +119,9 @@ def train_probe(from_cell_state=True):
     print("Average", np.mean(y_data, axis=0))
 
     # Get Info between top half of H and Y
-    get_info(hidden_data[:, :int(0.5 * hidden_data.shape[1])], y_data, title='Top half H', do_plot=True)
-    get_info(hidden_data[:, int(0.5 * hidden_data.shape[1]):], y_data, title='Bottom half H', do_plot=True)
-    get_info(hidden_data, y_data, title='All H', do_plot=True)
+    # get_info(hidden_data[:, :int(0.5 * hidden_data.shape[1])], y_data, title='Top half H', do_plot=True)
+    # get_info(hidden_data[:, int(0.5 * hidden_data.shape[1]):], y_data, title='Bottom half H', do_plot=True)
+    # get_info(hidden_data, y_data, title='All H', do_plot=True)
 
     # 2) Initialize a net to predict prey location.
     num_layers = 3 if from_cell_state else 3
@@ -231,7 +233,7 @@ def train_probe(from_cell_state=True):
     plt.title(title)
     plt.xlabel("Time step into episode (max 20)")
     plt.ylabel("Probe accuracy")
-    # plt.show()
+    plt.show()
 
     # Plot a confusion matrix over prey locations.
     confusion = confusion_matrix(all_true, all_pred)
@@ -246,5 +248,5 @@ if __name__ == '__main__':
     env_name = args.env_name
     args.train = True  # Set by hand for now.
     for agent_id in range(0, 2):
-        for do_c in [False]:
+        for do_c in [True, False]:
             train_probe(do_c)

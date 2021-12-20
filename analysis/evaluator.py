@@ -5,7 +5,7 @@ from action_utils import *
 from nns.probe import Probe
 from utils.game_tracker import GameTracker
 from utils.util_fns import *
-from train_probe import is_car_in_front
+from train_probe import is_car_in_front, get_prey_location
 
 Transition = namedtuple('Transition', ('state', 'action', 'action_out', 'value', 'episode_mask', 'episode_mini_mask', 'next_state',
                                        'reward', 'misc'))
@@ -20,17 +20,17 @@ class Evaluator:
         self.tracker = GameTracker(max_size=10000) if args.use_tracker else None
 
         # Lots of intervention-based variables for overwriting cell state, etc.
-        self.intervene = True
+        self.intervene = False
         self.num_agents = args.nagents
         # self.intervene_ids = [i for i in range(self.num_agents)]
-        self.intervene_ids = [0]
+        self.intervene_ids = [1]
         try:
             if self.intervene:
                 tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'tracker.pkl')
                 old_tracker = GameTracker.from_file(tracker_path)
                 c_dim = old_tracker.data[0][2][0].detach().numpy().shape[1]
-                # probe_pred_dim = 25
-                probe_pred_dim = 2
+                probe_pred_dim = 49
+                # probe_pred_dim = 2
                 self.c_probes = [Probe(c_dim, probe_pred_dim, num_layers=3) for _ in range(self.num_agents)]
                 [c_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'c_probe_' +
                                             str(i) + '.pth'))) for i, c_probe in enumerate(self.c_probes)]
@@ -71,7 +71,7 @@ class Evaluator:
                     prev_hid = self.policy_net.init_hidden(batch_size=state.shape[0])
                 x = [state, prev_hid]
                 # Interventions are done within the commnet by setting info{} variables.
-                if t <= 20 and self.intervene:
+                if t <= 5 and self.intervene:
                     true_state = self.env.get_true_state()
                     obs = self.env.get_obs()
                     # For the predator-prey env.
@@ -88,13 +88,17 @@ class Evaluator:
                     info['s_primes'] = [None for _ in range(self.num_agents)]
                     for intervene_id in self.intervene_ids:
                         info['h_probes'][intervene_id] = self.h_probes[intervene_id]
-                        # info['c_probes'][intervene_id] = self.c_probes[intervene_id]
+                        info['c_probes'][intervene_id] = self.c_probes[intervene_id]
+                        # For predator-prey
+                        s_prime = get_prey_location(true_state, 49)
+                        s_prime = np.argmax(s_prime)
                         # For the traffic env.
-                        s_prime, _ = is_car_in_front(true_state,
-                                                np.hstack([np.reshape(elt, (1, -1)) for elt in obs[intervene_id]])[0],
-                                                self.env.env)
-                        if s_prime != 1:  # Only intervene if we want to brake.
-                            continue
+                        # s_prime, _ = is_car_in_front(true_state,
+                        #                         np.hstack([np.reshape(elt, (1, -1)) for elt in obs[intervene_id]])[0],
+                        #                         self.env.env)
+                        # if s_prime != 1:  # Only intervene if we want to brake.
+                        #     continue
+
                         did_intervene = True
                         info['s_primes'][intervene_id] = s_prime
 

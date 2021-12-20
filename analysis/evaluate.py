@@ -114,7 +114,7 @@ def run_eval(_):
     for key in all_stats[0].keys():
         average_stat[key] = np.mean([stat.get(key) for stat in all_stats])
     print("average stats is: ", average_stat)
-    print("avg comm ", average_stat['comm_action'] / average_stat['num_steps'])
+    # print("avg comm ", average_stat['comm_action'] / average_stat['num_steps'])
     print("time taken per step ", total_episode_time/average_stat['num_steps'])
 
 

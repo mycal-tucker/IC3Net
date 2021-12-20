@@ -112,6 +112,8 @@ class Trainer(object):
             if hasattr(self.args, 'enemy_comm') and self.args.enemy_comm:
                 stat['enemy_reward'] = stat.get('enemy_reward', 0) + reward[self.args.nfriendly:]
 
+            stat['collisions'] = stat.get('collisions', 0)
+
             done = done or t == self.args.max_steps - 1
 
             episode_mask = np.ones(reward.shape)
