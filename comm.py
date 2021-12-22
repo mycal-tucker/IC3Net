@@ -193,7 +193,7 @@ class CommNetMLP(nn.Module):
             goal_id = s_primes[idx]
             if not goal_id:
                 continue
-            print("Intervening")
+            # print("Intervening")
             new_goal[0, goal_id] = 1
             new_goal = torch.Tensor(new_goal)
             x_fact_h = gen_counterfactual(start_h, h_probe, new_goal)

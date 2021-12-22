@@ -12,7 +12,7 @@ Transition = namedtuple('Transition', ('state', 'action', 'action_out', 'value',
 
 
 class Evaluator:
-    def __init__(self, args, policy_net, env):
+    def __init__(self, args, policy_net, env, probe_dropout_rate, probe_seed, num_intervention_steps):
         self.args = args
         self.policy_net = policy_net
         self.env = env
@@ -20,7 +20,8 @@ class Evaluator:
         self.tracker = GameTracker(max_size=10000) if args.use_tracker else None
 
         # Lots of intervention-based variables for overwriting cell state, etc.
-        self.intervene = False
+        self.intervene = True
+        self.num_intervention_steps = num_intervention_steps
         self.num_agents = args.nagents
         # self.intervene_ids = [i for i in range(self.num_agents)]
         self.intervene_ids = [1]
@@ -32,13 +33,14 @@ class Evaluator:
                 probe_pred_dim = 49
                 # probe_pred_dim = 2
                 self.c_probes = [Probe(c_dim, probe_pred_dim, num_layers=3) for _ in range(self.num_agents)]
-                [c_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'c_probe_' +
-                                            str(i) + '.pth'))) for i, c_probe in enumerate(self.c_probes)]
+                [c_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" +
+                                                                 str(args.seed), 'probes', 'seed' + str(probe_seed),
+                                                                 'c_probe_' + str(i) + '_dropout_' + str(probe_dropout_rate) + '.pth'))) for i, c_probe in enumerate(self.c_probes)]
                 [c_probe.eval() for c_probe in self.c_probes]
 
                 self.h_probes = [Probe(c_dim, probe_pred_dim, num_layers=3) for _ in range(self.num_agents)]
-                [h_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'h_probe_' +
-                                            str(i) + '.pth'))) for i, h_probe in enumerate(self.h_probes)]
+                [h_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'probes', 'seed' + str(probe_seed), 'h_probe_' +
+                                            str(i) + '_dropout_' + str(probe_dropout_rate) + '.pth'))) for i, h_probe in enumerate(self.h_probes)]
                 [h_probe.eval() for h_probe in self.h_probes]
         except FileNotFoundError:
             print("No old tracker there, so not doing interventions.")
@@ -71,7 +73,7 @@ class Evaluator:
                     prev_hid = self.policy_net.init_hidden(batch_size=state.shape[0])
                 x = [state, prev_hid]
                 # Interventions are done within the commnet by setting info{} variables.
-                if t <= 5 and self.intervene:
+                if t <= self.num_intervention_steps and self.intervene:
                     true_state = self.env.get_true_state()
                     obs = self.env.get_obs()
                     # For the predator-prey env.
@@ -113,7 +115,7 @@ class Evaluator:
                 x = state
                 action_out, value = self.policy_net(x, info)
 
-            action = select_action(self.args, action_out, eval_mode=True, print_probs=did_intervene)
+            action = select_action(self.args, action_out, eval_mode=True, print_probs=False)
             action, actual = translate_action(self.args, self.env, action)
             full_state = self.env.get_true_state()
             next_state, reward, done, info = self.env.step(actual)

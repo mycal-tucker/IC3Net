@@ -1,5 +1,8 @@
 import os
 from curses import wrapper
+import csv
+import numpy as np
+from settings import settings
 
 from utils import data
 from action_utils import parse_action_args
@@ -96,26 +99,82 @@ def run_eval(_):
     for p in policy_net.parameters():
         p.data.share_memory_()
 
-    evaluator = Evaluator(args, policy_net, data.init(args.env_name, args))
-
-    st_time = time.time()
-
-    all_stats = []
-    for i in range(100):
-        ep, stat, all_comms = evaluator.run_episode()
-        print("Trial", i, stat)
-        all_stats.append(stat)
     if args.use_tracker:
+        evaluator = Evaluator(args, policy_net, data.init(args.env_name, args), 0, 0,
+                              -1)
+        all_stats = []
+        for i in range(1000):
+            ep, stat, all_comms = evaluator.run_episode()
+            all_stats.append(stat)
+            if i % 50 == 0:
+                print("Episode number", i)
         tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), "tracker.pkl")
         evaluator.tracker.to_file(tracker_path)
+        return
 
-    total_episode_time = time.time() - st_time
-    average_stat = {}
-    for key in all_stats[0].keys():
-        average_stat[key] = np.mean([stat.get(key) for stat in all_stats])
-    print("average stats is: ", average_stat)
-    # print("avg comm ", average_stat['comm_action'] / average_stat['num_steps'])
-    print("time taken per step ", total_episode_time/average_stat['num_steps'])
+    # num_steps = [i for i in range(1, 6)]
+    num_steps = [1]
+    dropout_rates = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    # dropout_rates = [0.0, 0.1, 0.2, 0.3, 0.4]
+    # dropout_rates = [0.0]
+    probe_seeds = [i for i in range(2)]
+    # probe_seeds = [0]
+    # xfact_steps = [50, 250, 500, 750, 1000, 2000, 3000, 4000, 5000]
+    xfact_steps = [50]
+    success_table = np.zeros((len(dropout_rates), len(num_steps), 2))
+    collision_table = np.zeros((len(dropout_rates), len(num_steps), 2))
+    time_table = np.zeros((len(dropout_rates), len(num_steps), 2))
+    for xfact_step in xfact_steps:
+        settings.NUM_XFACT_STEPS = xfact_step
+        for inter_idx, num_intervention_steps in enumerate(num_steps):
+            for dropout_idx, probe_dropout_rate in enumerate(dropout_rates):
+                succ_for_seed = []
+                collision_for_seed = []
+                time_for_seed = []
+                for probe_seed in probe_seeds:
+                    print("Eval for dropout", probe_dropout_rate, "for", num_intervention_steps, "steps for probe seed", probe_seed)
+                    evaluator = Evaluator(args, policy_net, data.init(args.env_name, args), probe_dropout_rate, probe_seed, num_intervention_steps)
+                    st_time = time.time()
+                    all_stats = []
+                    for i in range(10):
+                        ep, stat, all_comms = evaluator.run_episode()
+                        all_stats.append(stat)
+                    if args.use_tracker:
+                        tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), "tracker.pkl")
+                        evaluator.tracker.to_file(tracker_path)
+
+                    total_episode_time = time.time() - st_time
+                    average_stat = {}
+                    for key in all_stats[0].keys():
+                        average_stat[key] = np.mean([stat.get(key) for stat in all_stats])
+                    print("average stats is: ", average_stat)
+                    succ_for_seed.append(average_stat.get('success'))
+                    collision_for_seed.append(average_stat.get('collisions'))
+                    time_for_seed.append(total_episode_time/average_stat['num_steps'])
+                success_table[dropout_idx, inter_idx, 0] = np.mean(succ_for_seed)
+                success_table[dropout_idx, inter_idx, 1] = np.std(succ_for_seed)
+                collision_table[dropout_idx, inter_idx, 0] = np.mean(collision_for_seed)
+                collision_table[dropout_idx, inter_idx, 1] = np.std(collision_for_seed)
+                time_table[dropout_idx, inter_idx, 0] = np.mean(time_for_seed)
+                time_table[dropout_idx, inter_idx, 1] = np.std(time_for_seed)
+                # print("Success table\n", success_table[:, :, 0])
+                # print("Collision table\n", collision_table[:, :, 0])
+                # print("Success std table\n", success_table[:, :, 1])
+                # print("Collision std table\n", collision_table[:, :, 1])
+                with open("success_table_" + str(xfact_step) + ".csv", 'w') as f:
+                    f.write("Success mean\n")
+                    writer = csv.writer(f)
+                    writer.writerows(success_table[:, :, 0])
+                    f.write("Success std\n")
+                    writer.writerows(success_table[:, :, 1])
+                    f.write("Collision mean\n")
+                    writer.writerows(collision_table[:, :, 0])
+                    f.write("Collision std\n")
+                    writer.writerows(collision_table[:, :, 1])
+                    f.write("Time mean\n")
+                    writer.writerows(time_table[:, :, 0])
+                    f.write("Time std\n")
+                    writer.writerows(time_table[:, :, 1])
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 import os
 
 import matplotlib.pyplot as plt
+import torch
 import torch.nn as nn
 import torch.optim as optim
 from sklearn.metrics import confusion_matrix
@@ -75,10 +76,11 @@ def car_stopped(act):
 
 
 def train_probe(from_cell_state=True):
+    torch.manual_seed(probe_seed)
     # 1) Load a tracker, which has already been populated by running eval.
     tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'tracker.pkl')
     tracker = GameTracker.from_file(tracker_path)
-    print("tracker len", len(tracker.data))
+    # print("tracker len", len(tracker.data))
 
     hidden_state_idx = 0 if from_cell_state else 1
     hidden_dim = tracker.data[0][2][hidden_state_idx].detach().numpy().shape[1]
@@ -116,7 +118,7 @@ def train_probe(from_cell_state=True):
         data_idxs.append(data_idx)
     y_data = np.array(y_data)
     hidden_data = hidden_data[data_idxs]
-    print("Average", np.mean(y_data, axis=0))
+    # print("Average", np.mean(y_data, axis=0))
 
     # Get Info between top half of H and Y
     # get_info(hidden_data[:, :int(0.5 * hidden_data.shape[1])], y_data, title='Top half H', do_plot=True)
@@ -125,7 +127,7 @@ def train_probe(from_cell_state=True):
 
     # 2) Initialize a net to predict prey location.
     num_layers = 3 if from_cell_state else 3
-    probe_model = Probe(hidden_dim, y_dim, num_layers=num_layers)
+    probe_model = Probe(hidden_dim, y_dim, num_layers=num_layers, dropout_rate=dropout_rate)
 
     # 3) Put all the data in a dataloader
     frac = 0.75
@@ -137,8 +139,11 @@ def train_probe(from_cell_state=True):
     train_dataloader = DataLoader(train_set, batch_size=128, shuffle=True)
     test_dataloader = DataLoader(test_set, batch_size=64, shuffle=False)
 
-    path_name = 'c_probe' if from_cell_state else 'h_probe'
-    path_name += '_' + str(agent_id) + '.pth'
+    path_dir = 'probes/seed' + str(probe_seed) + '/'
+    path_root = path_dir + ('c_probe' if from_cell_state else 'h_probe')
+    dropout_str = f"{dropout_rate:.1f}"
+    path_root += '_' + str(agent_id) + '_dropout_' + dropout_str
+    path_name = path_root + '.pth'
     probe_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), path_name)
     if args.train:
         # 4) Do the training.
@@ -149,7 +154,7 @@ def train_probe(from_cell_state=True):
         max_patience = 10
         curr_patience = 0
         best_probe = Probe(hidden_dim, y_dim, num_layers=num_layers)
-        for epoch in range(1000):  # Was 100
+        for epoch in range(100):  # Was 100
             probe_model.train()
             if curr_patience >= max_patience:
                 print("Breaking because of patience with eval loss", min_eval_loss)
@@ -172,7 +177,7 @@ def train_probe(from_cell_state=True):
                     outputs = probe_model(inputs)
                     loss = criterion(outputs, labels)
                     running_loss += loss
-                print("Eval loss", running_loss)
+                # print("Eval loss", running_loss)
                 if min_eval_loss is None or running_loss < min_eval_loss - 0.01:
                     min_eval_loss = running_loss
                     curr_patience = 0
@@ -233,12 +238,16 @@ def train_probe(from_cell_state=True):
     plt.title(title)
     plt.xlabel("Time step into episode (max 20)")
     plt.ylabel("Probe accuracy")
-    plt.show()
+    plt.savefig(os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), path_root + 'acc.png'))
+    # plt.show()
+    plt.close()
 
     # Plot a confusion matrix over prey locations.
     confusion = confusion_matrix(all_true, all_pred)
     plt.matshow(confusion)
-    plt.show()
+    plt.savefig(os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), path_root + 'confusion.png'))
+    # plt.show()
+    plt.close()
 
 
 if __name__ == '__main__':
@@ -247,6 +256,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
     env_name = args.env_name
     args.train = True  # Set by hand for now.
-    for agent_id in range(0, 2):
-        for do_c in [True, False]:
-            train_probe(do_c)
+    for probe_seed in range(0, 5):
+        for dropout_rate in [i * 0.1 for i in range(0, 10)]:
+            for agent_id in range(0, 2):
+                print("Training for seed", probe_seed, "dropout", dropout_rate, "agent", agent_id)
+                for do_c in [True, False]:
+                    train_probe(do_c)

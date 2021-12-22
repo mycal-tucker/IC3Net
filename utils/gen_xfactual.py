@@ -1,8 +1,8 @@
 import os
-
+from settings import settings
 import torch.nn as nn
 import torch.optim as optim
-
+import time
 from args import get_args
 from nns.probe import Probe
 from utils.game_tracker import GameTracker
@@ -10,6 +10,7 @@ from utils.util_fns import *
 
 
 def gen_counterfactual(z, probe, s_prime):
+    start_time = time.time()
     z_prime = z
     z_prime.requires_grad = True
     # optimizer = optim.SGD([z_prime], lr=0.0001, momentum=0.9)
@@ -18,13 +19,15 @@ def gen_counterfactual(z, probe, s_prime):
     criterion = nn.CrossEntropyLoss()
     num_steps = 0
     # stopping_loss = .01  # Was 0.05
-    stopping_loss = .5  # Was 0.05
+    stopping_loss = .000005  # Made super small so we always have same number of steps.
     loss = 100
     max_patience = 10000
+    max_num_steps = settings.NUM_XFACT_STEPS
     curr_patience = 0
     min_loss = loss
     probe.eval()
-    while loss > stopping_loss:
+    curr_time = time.time()
+    while curr_time - start_time < 1 and num_steps < max_num_steps and loss > stopping_loss:
         optimizer.zero_grad()
         outputs = probe(torch.Tensor(z_prime))
         loss = criterion(outputs, s_prime)
@@ -36,9 +39,15 @@ def gen_counterfactual(z, probe, s_prime):
             min_loss = loss
             curr_patience = 0
         if curr_patience > max_patience:
-            # print("Breaking because of patience with loss", loss)
+            print("Breaking because of patience with loss", loss)
             break
-    print("Num steps", num_steps, "\tloss", loss)
+        curr_time = time.time()
+        # print("Diff", curr_time - start_time)
+    # print("Num steps", num_steps, "\tloss", loss)
+    # if num_steps >= max_num_steps:
+    #     print("Max step thing")
+    # if loss <= stopping_loss:
+    #     print("Broke for min loss", loss)
     return z_prime
 
 
