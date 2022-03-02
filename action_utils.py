@@ -45,6 +45,8 @@ def select_action(args, action_out, eval_mode=False, print_probs=False):
             print("p_a", p_a)
         if eval_mode:
             ret = torch.stack([torch.stack([torch.argmax(x, 1).detach() for x in p]) for p in p_a])
+            if print_probs:
+                print("Ret", ret)
         else:
             ret = torch.stack([torch.stack([torch.multinomial(x, 1).detach() for x in p]) for p in p_a])
         return ret

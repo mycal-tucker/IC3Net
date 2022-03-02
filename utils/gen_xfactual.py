@@ -9,17 +9,19 @@ from utils.game_tracker import GameTracker
 from utils.util_fns import *
 
 
-def gen_counterfactual(z, probe, s_prime):
+def gen_counterfactual(z, probe, s_prime, criterion=None):
     start_time = time.time()
     z_prime = z
     z_prime.requires_grad = True
     # optimizer = optim.SGD([z_prime], lr=0.0001, momentum=0.9)
-    optimizer = optim.SGD([z_prime], lr=0.001, momentum=0.9)
-    # optimizer = optim.Adam([z_prime], lr=0.001)
-    criterion = nn.CrossEntropyLoss()
+    # optimizer = optim.SGD([z_prime], lr=0.001, momentum=0.9)
+    optimizer = optim.SGD([z_prime], lr=0.01, momentum=0.9)  # Good. Generated the prey results.
+    if criterion is None:
+        criterion = nn.CrossEntropyLoss()
+    # criterion = nn.BCEWithLogitsLoss()
     num_steps = 0
-    # stopping_loss = .01  # Was 0.05
-    stopping_loss = .000005  # Made super small so we always have same number of steps.
+    stopping_loss = 0.001  # Was 0.05
+    # stopping_loss = .001  # Generated the prey results
     loss = 100
     max_patience = 10000
     max_num_steps = settings.NUM_XFACT_STEPS
@@ -27,12 +29,14 @@ def gen_counterfactual(z, probe, s_prime):
     min_loss = loss
     probe.eval()
     curr_time = time.time()
-    while curr_time - start_time < 1 and num_steps < max_num_steps and loss > stopping_loss:
+    while curr_time - start_time < 100 and num_steps < max_num_steps and loss > stopping_loss:
         optimizer.zero_grad()
         outputs = probe(torch.Tensor(z_prime))
         loss = criterion(outputs, s_prime)
         loss.backward()
         optimizer.step()
+        # if num_steps % 100 == 0:
+        #     print("Loss", loss)
         num_steps += 1
         curr_patience += 1
         if loss < min_loss - 0.01:
@@ -45,7 +49,7 @@ def gen_counterfactual(z, probe, s_prime):
         # print("Diff", curr_time - start_time)
     # print("Num steps", num_steps, "\tloss", loss)
     # if num_steps >= max_num_steps:
-    #     print("Max step thing")
+    #     print("Max step thing", loss)
     # if loss <= stopping_loss:
     #     print("Broke for min loss", loss)
     return z_prime

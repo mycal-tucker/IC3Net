@@ -47,7 +47,9 @@ class TrafficJunctionEnv(gym.Env):
         self.episode_over = False
         self.has_failed = 0
         self.timestep = None
-        self.corrupt = False
+        self.corrupt = True
+        self.route_corrupt = False
+        self.corrupt_agent_id = 0
 
     def init_curses(self):
         self.stdscr = curses.initscr()
@@ -155,7 +157,8 @@ class TrafficJunctionEnv(gym.Env):
             self._set_paths_easy()
         else:
             self._set_paths(difficulty)
-
+        # if args.seed != -1:
+        #     np.random.seed(args.seed)
         return
 
     def reset(self, epoch=None):
@@ -192,6 +195,7 @@ class TrafficJunctionEnv(gym.Env):
 
         # stat - like success ratio
         self.stat = dict()
+        self.stat['collisions'] = 0  # Actually tracks if it braked
 
         # set add rate according to the curriculum
         epoch_range = (self.curr_end - self.curr_start)
@@ -338,6 +342,9 @@ class TrafficJunctionEnv(gym.Env):
 
             # route id
             r_i = self.route_id[i] / (self.npath - 1)
+            if self.route_corrupt and i == self.corrupt_agent_id:
+                # print("Corrupting route for agent 0 from route id", r_i, "to 0.")
+                r_i = 0  # Choose 0. That's wrong most of the time.
 
             # loc
             p_norm = p / (h-1, w-1)
@@ -347,7 +354,7 @@ class TrafficJunctionEnv(gym.Env):
             slice_x = slice(p[1], p[1] + (2 * self.vision) + 1)
             v_sq = self.bool_base_grid[slice_y, slice_x]
 
-            if self.corrupt: #and i == 0:
+            if self.corrupt and i == self.corrupt_agent_id:
                 for j in range(2 * self.vision + 1):
                     for k in range(2 * self.vision + 1):
                         if j == self.vision and k == self.vision:
@@ -557,8 +564,10 @@ class TrafficJunctionEnv(gym.Env):
 
         # action BRAKE i.e STAY
         if act == 1:
-            if idx >= 0:
-                # print("Brake")
+            # print("Agent", idx, "with action", act)
+            if idx == 0:
+                # print("Agent", idx, "braked")
+                self.stat['collisions'] = 1
                 pass
             self.car_last_act[idx] = 1
             return
@@ -603,6 +612,7 @@ class TrafficJunctionEnv(gym.Env):
                len(np.where(np.all(self.car_loc[i+1:] == l,axis=1))[0])) and l.any():
                reward[i] += self.CRASH_PENALTY
                self.has_failed = 1
+               print("Crash!")
 
         reward = self.alive_mask * reward
         return reward

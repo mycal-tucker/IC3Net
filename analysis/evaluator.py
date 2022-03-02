@@ -5,7 +5,7 @@ from action_utils import *
 from nns.probe import Probe
 from utils.game_tracker import GameTracker
 from utils.util_fns import *
-from train_probe import is_car_in_front, get_prey_location
+from train_probe import is_car_in_front, get_prey_location, get_grid_obstacles, car_occupancy_grid
 
 Transition = namedtuple('Transition', ('state', 'action', 'action_out', 'value', 'episode_mask', 'episode_mini_mask', 'next_state',
                                        'reward', 'misc'))
@@ -24,25 +24,52 @@ class Evaluator:
         self.num_intervention_steps = num_intervention_steps
         self.num_agents = args.nagents
         # self.intervene_ids = [i for i in range(self.num_agents)]
-        self.intervene_ids = [1]
+        self.intervene_ids = [0, 1]
+        is_pred_prey = True
         try:
             if self.intervene:
                 tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'tracker.pkl')
                 old_tracker = GameTracker.from_file(tracker_path)
                 c_dim = old_tracker.data[0][2][0].detach().numpy().shape[1]
-                probe_pred_dim = 49
-                # probe_pred_dim = 2
-                self.c_probes = [Probe(c_dim, probe_pred_dim, num_layers=3) for _ in range(self.num_agents)]
-                [c_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" +
-                                                                 str(args.seed), 'probes', 'seed' + str(probe_seed),
-                                                                 'c_probe_' + str(i) + '_dropout_' + str(probe_dropout_rate) + '.pth'))) for i, c_probe in enumerate(self.c_probes)]
-                [c_probe.eval() for c_probe in self.c_probes]
+                num_layers = 3
+                if is_pred_prey:
+                    self.c_probes = [Probe(c_dim, dim, num_layers=num_layers) for dim in [9, 49]]
+                    [c_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" +
+                                                                     str(args.seed), 'adam_probes', 'seed' + str(probe_seed),
+                                                                     'c_probe_' + str(i) + '_dropout_' + str(probe_dropout_rate) + '.pth'))) for i, c_probe in enumerate(self.c_probes)]
 
-                self.h_probes = [Probe(c_dim, probe_pred_dim, num_layers=3) for _ in range(self.num_agents)]
-                [h_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'probes', 'seed' + str(probe_seed), 'h_probe_' +
-                                            str(i) + '_dropout_' + str(probe_dropout_rate) + '.pth'))) for i, h_probe in enumerate(self.h_probes)]
+
+                    # self.h_probes = [Probe(c_dim, probe_pred_dim, num_layers=3) for _ in range(self.num_agents)]
+                    self.h_probes = [Probe(c_dim, dim, num_layers=num_layers) for dim in [9, 49]]
+                    [h_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name,
+                                                                     "seed" + str(args.seed), 'adam_probes',
+                                                                     'seed' + str(probe_seed), 'h_probe_' +
+                                                                     str(i) + '_dropout_' + str(probe_dropout_rate) + '.pth'))) for i, h_probe in enumerate(self.h_probes)]
+                else:
+                    easy = True
+                    probe_pred_dim = 2 if easy else 9
+                    self.c_probes = [Probe(c_dim, probe_pred_dim, num_layers=num_layers) for _ in range(self.num_agents)]
+
+                    [c_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" +
+                                                                     str(args.seed), 'adam_probes',
+                                                                     'seed' + str(probe_seed),
+                                                                     'c_probe_0_dropout_' + str(
+                                                                         probe_dropout_rate) + '.pth'))) for i, c_probe
+                     in enumerate(self.c_probes)]
+                    if easy:
+                        self.h_probes = self.c_probes
+                    else:
+                        self.h_probes = [Probe(c_dim, probe_pred_dim, num_layers=num_layers) for _ in range(self.num_agents)]
+
+                        [h_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" +
+                                                                         str(args.seed), 'adam_probes',
+                                                                         'seed' + str(probe_seed),
+                                                                         'h_probe_0_dropout_' + str(
+                                                                             probe_dropout_rate) + '.pth'))) for i, h_probe
+                         in enumerate(self.h_probes)]
+                [c_probe.eval() for c_probe in self.c_probes]
                 [h_probe.eval() for h_probe in self.h_probes]
-        except FileNotFoundError:
+        except AssertionError:
             print("No old tracker there, so not doing interventions.")
             self.intervene = False
 
@@ -59,8 +86,10 @@ class Evaluator:
         info = dict()
         switch_t = -1
 
-        prev_hid = torch.zeros(1, self.args.nagents, self.args.hid_size)
+        is_pred_prey = True
 
+        prev_hid = torch.zeros(1, self.args.nagents, self.args.hid_size)
+        prev_obs = None
         for t in range(self.args.max_steps):
             did_intervene = False
             misc = dict()
@@ -89,18 +118,38 @@ class Evaluator:
                     info['c_probes'] = [None for _ in range(self.num_agents)]
                     info['s_primes'] = [None for _ in range(self.num_agents)]
                     for intervene_id in self.intervene_ids:
-                        info['h_probes'][intervene_id] = self.h_probes[intervene_id]
-                        info['c_probes'][intervene_id] = self.c_probes[intervene_id]
                         # For predator-prey
-                        s_prime = get_prey_location(true_state, 49)
-                        s_prime = np.argmax(s_prime)
+                        if is_pred_prey:
+                            if intervene_id == 0:
+                                # Predator sees obstacles
+                                s_prime = get_grid_obstacles(true_state, 49)
+                                if np.sum(s_prime) == 0:
+                                    continue
+                                if s_prime[4] == 1:
+                                    # print("On obs")
+                                    continue
+                                info['h_probes'][intervene_id] = self.h_probes[intervene_id]
+                                # info['c_probes'][intervene_id] = self.c_probes[intervene_id]
+                                s_prime = get_grid_obstacles(true_state, 49)
+                            elif intervene_id == 1:
+                                # Prey learns where it is
+                                info['h_probes'][intervene_id] = self.h_probes[intervene_id]
+                                info['c_probes'][intervene_id] = self.c_probes[intervene_id]
+                                s_prime = get_prey_location(true_state, 49)
+                                s_prime = np.argmax(s_prime)
                         # For the traffic env.
-                        # s_prime, _ = is_car_in_front(true_state,
-                        #                         np.hstack([np.reshape(elt, (1, -1)) for elt in obs[intervene_id]])[0],
-                        #                         self.env.env)
-                        # if s_prime != 1:  # Only intervene if we want to brake.
-                        #     continue
-
+                        else:
+                            true_state = self.env.get_true_state()
+                            obs = self.env.get_obs()
+                            s_prime, alive = car_occupancy_grid(true_state, np.hstack([np.reshape(elt, (1, -1)) for elt in obs[intervene_id]])[0],
+                                                         self.env.env)
+                            if not alive:
+                                continue
+                            # if not alive or np.sum(s_prime) == 1:
+                            #     continue
+                            info['h_probes'][intervene_id] = self.h_probes[intervene_id]
+                            info['c_probes'][intervene_id] = self.c_probes[intervene_id]
+                            # print("I sure hope you want medium traffic recurrent interventions.")
                         did_intervene = True
                         info['s_primes'][intervene_id] = s_prime
 
@@ -112,26 +161,47 @@ class Evaluator:
                     else:
                         prev_hid = prev_hid.detach()
             else:
+                true_state = self.env.get_true_state()
+                obs = self.env.get_obs()
                 x = state
-                action_out, value = self.policy_net(x, info)
+                if self.intervene:
+                    info['h_probes'] = [None for _ in range(self.num_agents)]
+                    info['c_probes'] = [None for _ in range(self.num_agents)]
+                    info['s_primes'] = [None for _ in range(self.num_agents)]
+                    for intervene_id in self.intervene_ids:
+                        s_prime, _ = is_car_in_front(true_state,
+                                                     np.hstack([np.reshape(elt, (1, -1)) for elt in obs[intervene_id]])[0],
+                                                     self.env.env)
+                        info['h_probes'][intervene_id] = self.h_probes[intervene_id]
+                        # info['c_probes'][intervene_id] = self.c_probes[intervene_id]
+                        # if s_prime != 1:  # Only intervene if we want to brake.
+                        #     continue
+                        info['s_primes'][intervene_id] = s_prime
+                action_out, value, prev_hid = self.policy_net(x, info)
+                prev_hid = prev_hid.detach()
 
             action = select_action(self.args, action_out, eval_mode=True, print_probs=False)
             action, actual = translate_action(self.args, self.env, action)
             full_state = self.env.get_true_state()
+            # if did_intervene:
+            #     print("Intervened")
             next_state, reward, done, info = self.env.step(actual)
 
-            if self.tracker:
+            if self.tracker and prev_obs is not None:
                 # Ignore gating action
-                self.tracker.add_data(full_state, next_state, prev_hid, self.env.get_timestep(), actual[0])
+                self.tracker.add_data(full_state, prev_obs, prev_hid, self.env.get_timestep(), actual[0])
+            prev_obs = next_state
             # store comm_action in info for next step
             if self.args.hard_attn and self.args.commnet:
                 info['comm_action'] = action[-1] if not self.args.comm_action_one else np.ones(self.args.nagents, dtype=int)
+                info['comm_action'] = info['comm_action'] if not self.args.comm_action_zero else np.zeros(
+                    self.args.nagents, dtype=int)
 
                 # print("before ", stat.get('comm_action', 0), info['comm_action'][:self.args.nfriendly])
                 stat['comm_action'] = stat.get('comm_action', 0) + info['comm_action'][:self.args.nfriendly]
                 all_comms.append(info['comm_action'][:self.args.nfriendly])
                 if hasattr(self.args, 'enemy_comm') and self.args.enemy_comm:
-                    stat['enemy_comm']  = stat.get('enemy_comm', 0)  + info['comm_action'][self.args.nfriendly:]
+                    stat['enemy_comm'] = stat.get('enemy_comm', 0)  + info['comm_action'][self.args.nfriendly:]
 
             if 'alive_mask' in info:
                 misc['alive_mask'] = info['alive_mask'].reshape(reward.shape)

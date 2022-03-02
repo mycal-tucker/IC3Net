@@ -86,6 +86,8 @@ def get_args():
                          help='Whether to use hard attention: action - talk|silent')
      parser.add_argument('--comm_action_one', default=False, action='store_true',
                          help='Whether to always talk, sanity check for hard attention.')
+     parser.add_argument('--comm_action_zero', default=False, action='store_true',
+                         help='Whether to never talk, sanity check for hard attention.')
      parser.add_argument('--advantages_per_action', default=False, action='store_true',
                          help='Whether to multipy log porb for each chosen action with advantages')
      parser.add_argument('--share_weights', default=False, action='store_true',

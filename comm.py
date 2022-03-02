@@ -191,12 +191,17 @@ class CommNetMLP(nn.Module):
             start_h = torch.unsqueeze(torch.Tensor(start_h), 0)
             new_goal = np.zeros((1, h_probe.out_dim))
             goal_id = s_primes[idx]
-            if not goal_id:
+            if goal_id is None:
                 continue
             # print("Intervening")
-            new_goal[0, goal_id] = 1
-            new_goal = torch.Tensor(new_goal)
-            x_fact_h = gen_counterfactual(start_h, h_probe, new_goal)
+            criterion = None
+            if isinstance(goal_id, np.ndarray):
+                new_goal = torch.unsqueeze(torch.Tensor(goal_id), 0)
+                criterion = nn.BCEWithLogitsLoss()
+            else:
+                new_goal[0, goal_id] = 1
+                new_goal = torch.Tensor(new_goal)
+            x_fact_h = gen_counterfactual(start_h, h_probe, new_goal, criterion=criterion)
             cloned[0, idx] = x_fact_h
 
     def forward(self, x, info={}):

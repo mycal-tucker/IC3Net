@@ -24,7 +24,7 @@ class SpuriousPredatorPreyEnv(gym.Env):
 
         self.prob_obs = 0.1
         self.stuck_on_obs = True
-        self.do_corrupt_pred = False
+        self.do_corrupt_pred = True
         self.do_corrupt_prey = True
 
     def init_curses(self):
@@ -154,7 +154,10 @@ class SpuriousPredatorPreyEnv(gym.Env):
         self.predator_loc, self.prey_loc = locs[:self.npredator], locs[self.npredator:]
         if self.do_corrupt_pred or self.do_corrupt_prey:
             self.prey_loc = np.asarray([[0, self.dims[1] - 1]])
-            self.predator_loc = np.asarray([[self.dims[0] - 1, 0]])
+            self.predator_loc[0] = np.asarray([[self.dims[0] - 1, 0]])
+            if self.predator_loc.shape[0] > 1:
+                self.predator_loc[1] = self.prey_loc
+                # self.predator_loc[1] = np.asarray([[1, self.dims[1] - 1]])
 
         # Reset the grid
         self.grid = np.zeros(self.num_grid_cells).reshape(self.dims)
@@ -187,9 +190,16 @@ class SpuriousPredatorPreyEnv(gym.Env):
             copied_state[self.__global_idxs_to_global__(noisy_p[0] + self.vision, noisy_p[1] + self.vision), self.PREY_CLASS] = 1
         return copied_state, noisy_prey_locs
 
+    def __corrupt_no_obs_state__(self, true_state):
+        copied_state = np.copy(true_state)
+        # And remove obstacles from map
+        copied_state[:, self.OBS_CLASS] = 0
+        return copied_state
+
     def get_obs(self):
         bool_base_grid = self.get_true_state()
         corrupted_base_grid, corrupted_prey_locs = self.__corrupt_state__(bool_base_grid)
+        corrupted_pred_grid = self.__corrupt_no_obs_state__(bool_base_grid)
         # Agents only observe parts of the state.
         obs = []
         for p in self.predator_loc:
@@ -200,7 +210,7 @@ class SpuriousPredatorPreyEnv(gym.Env):
                     if not self.do_corrupt_pred:
                         single_obs = bool_base_grid[self.__global_idxs_to_global__(visible_x + self.vision, visible_y + self.vision)]
                     else:
-                        single_obs = corrupted_base_grid[self.__global_idxs_to_global__(visible_x + self.vision, visible_y + self.vision)]
+                        single_obs = corrupted_pred_grid[self.__global_idxs_to_global__(visible_x + self.vision, visible_y + self.vision)]
                     # single_obs = bool_base_grid[self.__global_idxs_to_global__(visible_x + self.vision, visible_y + self.vision)]
                     row_obs.append(single_obs)
                 p_obs.append(np.stack(row_obs))

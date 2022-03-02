@@ -3,6 +3,8 @@ import torch.autograd as autograd
 from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
+from utils.gen_xfactual import gen_counterfactual
 
 
 class MLP(nn.Module):
@@ -19,19 +21,45 @@ class MLP(nn.Module):
             self.heads = nn.ModuleList([nn.Linear(args.hid_size, o) for o in args.naction_heads])
         self.value_head = nn.Linear(args.hid_size, 1)
         self.tanh = nn.Tanh()
+        self.relu = nn.ReLU()
+
+    def __intervention__(self, probes, inputs, s_primes):
+        cloned = inputs.clone()
+        for idx, h_probe in enumerate(probes):
+            if not h_probe:
+                continue
+            # print("Probe idx", idx)
+            sub_comm = inputs[0, idx]
+            start_h = sub_comm.detach().numpy()
+            start_h = torch.unsqueeze(torch.Tensor(start_h), 0)
+            new_goal = np.zeros((1, h_probe.out_dim))
+            goal_id = s_primes[idx]
+            if goal_id is None:
+                continue
+            # print("Intervening for goal id", goal_id)
+            if isinstance(goal_id, np.ndarray):
+                new_goal = torch.unsqueeze(torch.Tensor(goal_id), 0)
+            else:
+                new_goal[0, goal_id] = 1
+                new_goal = torch.Tensor(new_goal)
+            x_fact_h = gen_counterfactual(start_h, h_probe, new_goal)
+            cloned[0, idx] = x_fact_h
 
     def forward(self, x, info={}):
-        x = self.tanh(self.affine1(x))
-        h = self.tanh(sum([self.affine2(x), x]))
-        v = self.value_head(h)
+        h1 = self.relu(self.affine1(x))
+        if 'h_probes' in info.keys():
+            self.__intervention__(info.get('h_probes'), h1, info.get('s_primes'))
+        h2 = self.relu(sum([self.affine2(h1), h1]))
+
+        v = self.value_head(h2)
 
         if self.continuous:
-            action_mean = self.action_mean(h)
+            action_mean = self.action_mean(h2)
             action_log_std = self.action_log_std.expand_as(action_mean)
             action_std = torch.exp(action_log_std)
             return (action_mean, action_log_std, action_std), v
         else:
-            return [F.log_softmax(head(h), dim=-1) for head in self.heads], v
+            return [F.log_softmax(head(h2), dim=-1) for head in self.heads], v, h1
 
 
 class Random(nn.Module):

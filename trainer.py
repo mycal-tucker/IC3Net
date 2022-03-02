@@ -64,7 +64,7 @@ class Trainer(object):
                         prev_hid = prev_hid.detach()
             else:
                 x = state
-                action_out, value = self.policy_net(x, info)
+                action_out, value, _ = self.policy_net(x, info)
 
 
             # this is actually giving you actions from logits
@@ -94,6 +94,7 @@ class Trainer(object):
             # store comm_action in info for next step
             if self.args.hard_attn and self.args.commnet:
                 info['comm_action'] = action[-1] if not self.args.comm_action_one else np.ones(self.args.nagents, dtype=int)
+                info['comm_action'] = info['comm_action'] if not self.args.comm_action_zero else np.zeros(self.args.nagents, dtype=int)
 
                 stat['comm_action'] = stat.get('comm_action', 0) + info['comm_action'][:self.args.nfriendly]
                 if hasattr(self.args, 'enemy_comm') and self.args.enemy_comm:

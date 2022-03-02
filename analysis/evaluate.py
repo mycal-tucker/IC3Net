@@ -11,10 +11,36 @@ from comm import CommNetMLP
 from evaluator import Evaluator
 from nns.models import *
 from utils.util_fns import *
+from utils.game_tracker import GameTracker
+
+from nns.probe import Probe
 
 torch.utils.backcompat.broadcast_warning.enabled = True
 torch.utils.backcompat.keepdim_warning.enabled = True
 torch.set_default_tensor_type('torch.DoubleTensor')
+
+
+def load_parent_child_probes(probe_seed, probe_dropout_rate):
+    tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'tracker.pkl')
+    old_tracker = GameTracker.from_file(tracker_path)
+    c_dim = old_tracker.data[0][2][0].detach().numpy().shape[1]
+    probe_pred_dim = 49
+    c_probes = [Probe(c_dim, probe_pred_dim, num_layers=3) for _ in range(2)]
+    [c_probe.load_state_dict(torch.load(os.path.join(args.load, args.env_name, args.exp_name, "seed" +
+                                                     str(args.seed), 'probes', 'seed' + str(probe_seed),
+                                                     'c_probe_' + str(i) + '_dropout_' + str(
+                                                         probe_dropout_rate) + '.pth'))) for i, c_probe in
+     enumerate(c_probes)]
+    [c_probe.eval() for c_probe in c_probes]
+
+    h_probes = [Probe(c_dim, probe_pred_dim, num_layers=3) for _ in range(self.num_agents)]
+    [h_probe.load_state_dict(torch.load(
+        os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), 'probes',
+                     'seed' + str(probe_seed), 'h_probe_' +
+                     str(i) + '_dropout_' + str(probe_dropout_rate) + '.pth'))) for i, h_probe in
+     enumerate(h_probes)]
+    [h_probe.eval() for h_probe in h_probes]
+    return c_probes, h_probes
 
 
 def run_eval(_):
@@ -112,15 +138,17 @@ def run_eval(_):
         evaluator.tracker.to_file(tracker_path)
         return
 
-    # num_steps = [i for i in range(1, 6)]
-    num_steps = [1]
+    # num_steps = [i for i in range(1, 2)]
+    # For traffic, always intervene
+    num_steps = [10]
     dropout_rates = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    # dropout_rates = [0.1]
     # dropout_rates = [0.0, 0.1, 0.2, 0.3, 0.4]
     # dropout_rates = [0.0]
-    probe_seeds = [i for i in range(2)]
+    probe_seeds = [i for i in range(0, 5)]
     # probe_seeds = [0]
     # xfact_steps = [50, 250, 500, 750, 1000, 2000, 3000, 4000, 5000]
-    xfact_steps = [50]
+    xfact_steps = [200]
     success_table = np.zeros((len(dropout_rates), len(num_steps), 2))
     collision_table = np.zeros((len(dropout_rates), len(num_steps), 2))
     time_table = np.zeros((len(dropout_rates), len(num_steps), 2))
@@ -136,9 +164,11 @@ def run_eval(_):
                     evaluator = Evaluator(args, policy_net, data.init(args.env_name, args), probe_dropout_rate, probe_seed, num_intervention_steps)
                     st_time = time.time()
                     all_stats = []
-                    for i in range(10):
+                    for i in range(100):
                         ep, stat, all_comms = evaluator.run_episode()
                         all_stats.append(stat)
+                        if i % 20 == 0:
+                            print("Episode", i)
                     if args.use_tracker:
                         tracker_path = os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed), "tracker.pkl")
                         evaluator.tracker.to_file(tracker_path)
@@ -149,7 +179,8 @@ def run_eval(_):
                         average_stat[key] = np.mean([stat.get(key) for stat in all_stats])
                     print("average stats is: ", average_stat)
                     succ_for_seed.append(average_stat.get('success'))
-                    collision_for_seed.append(average_stat.get('collisions'))
+                    if average_stat.get('collisions') is not None:
+                        collision_for_seed.append(average_stat.get('collisions'))
                     time_for_seed.append(total_episode_time/average_stat['num_steps'])
                 success_table[dropout_idx, inter_idx, 0] = np.mean(succ_for_seed)
                 success_table[dropout_idx, inter_idx, 1] = np.std(succ_for_seed)
@@ -161,7 +192,8 @@ def run_eval(_):
                 # print("Collision table\n", collision_table[:, :, 0])
                 # print("Success std table\n", success_table[:, :, 1])
                 # print("Collision std table\n", collision_table[:, :, 1])
-                with open("success_table_" + str(xfact_step) + ".csv", 'w') as f:
+                with open(os.path.join(args.load, args.env_name, args.exp_name, "seed" + str(args.seed),
+                                       "success_table_" + str(xfact_step) + ".csv"), 'w') as f:
                     f.write("Success mean\n")
                     writer = csv.writer(f)
                     writer.writerows(success_table[:, :, 0])
